@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?><!--
+   Backup rules for Secure Cloud Storage app
+   Excludes sensitive data from cloud backups
+-->
+<full-backup-content>
+    <!-- Exclude all shared preferences to prevent key leakage -->
+    <exclude domain="sharedpref" path="." />
+    
+    <!-- Exclude app-specific files containing encrypted data -->
+    <exclude domain="file" path="." />
+    <exclude domain="external" path="." />
+    
+    <!-- Exclude database files -->
+    <exclude domain="database" path="." />
+    
+    <!-- Exclude root directory -->
+    <exclude domain="root" path="." />
+</full-backup-content>

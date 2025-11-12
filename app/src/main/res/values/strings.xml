@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">Android_File_Encryption</string>
+    <string name="default_web_client_id">YOUR_WEB_CLIENT_ID_HERE</string>
+</resources>
