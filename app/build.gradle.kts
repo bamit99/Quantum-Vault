@@ -69,8 +69,8 @@ dependencies {
     implementation(libs.google.api.client.android)
     implementation(libs.google.api.services.drive)
     
-    // Google Play Services Auth (for future Firebase integration)
-    // implementation("com.google.android.gms:play-services-auth:21.0.0")
+    // Google Play Services Auth
+    implementation("com.google.android.gms:play-services-auth:21.0.0")
 
     // Firebase Authentication (commented out until google-services.json is configured)
     // implementation(platform(libs.firebase.bom))
