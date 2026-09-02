@@ -5,32 +5,35 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.lifecycle.viewmodel.compose.viewModel
-import com.aiguru.android_file_encryption.ui.viewmodels.HomeViewModel
 
+/**
+ * Home screen driven directly by SAF state (no ViewModel needed — the vault is
+ * the remembered SAF tree): shows a setup card when no location is picked, or
+ * the single "Main Vault" entry once the user has chosen a folder.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
-    onAddAccount: () -> Unit,
-    onVaultSelected: (String) -> Unit,
-    viewModel: HomeViewModel = viewModel()
+    hasLocation: Boolean,
+    locationName: String?,
+    onPickLocation: () -> Unit,
+    onVaultSelected: () -> Unit
 ) {
-    val vaults by viewModel.vaults.collectAsState()
-
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("Secure Cloud Storage") }
-            )
+            TopAppBar(title = { Text("Aiguru Secure Vault") })
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = onAddAccount) {
-                Icon(Icons.Default.Add, contentDescription = "Add Cloud Account")
+            FloatingActionButton(onClick = onPickLocation) {
+                Icon(Icons.Default.FolderOpen, contentDescription = "Choose vault location")
             }
         }
     ) { paddingValues ->
@@ -40,82 +43,61 @@ fun HomeScreen(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
-            if (vaults.isEmpty()) {
-                // Empty state
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
+            if (!hasLocation) {
+                // Setup state: guide the user to pick a location
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
+                        Text("🔐", style = MaterialTheme.typography.displayLarge)
                         Text(
-                            text = "No vaults yet",
+                            "Set up your vault",
                             style = MaterialTheme.typography.headlineSmall
                         )
                         Text(
-                            text = "Tap the + button to add a cloud account and create your first vault",
+                            "Pick a folder — Google Drive, OneDrive, SD card or local.\n" +
+                                "Files are encrypted on-device before they leave.",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        Button(onClick = onPickLocation) {
+                            Icon(Icons.Default.FolderOpen, contentDescription = null)
+                            Spacer(Modifier.width(8.dp))
+                            Text("Choose location")
+                        }
                     }
                 }
             } else {
-                // Vault list
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(vaults) { vault ->
-                        VaultCard(
-                            vault = vault,
-                            onClick = { onVaultSelected(vault.id) }
+                // Vault ready
+                Card(onClick = onVaultSelected, modifier = Modifier.fillMaxWidth()) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.LockOpen,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
                         )
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Main Vault", style = MaterialTheme.typography.titleMedium)
+                            Text(
+                                "Location: $locationName — tap to open",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
+                }
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = onPickLocation, modifier = Modifier.fillMaxWidth()) {
+                    Text("Change location")
                 }
             }
         }
     }
 }
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun VaultCard(
-    vault: VaultInfo,
-    onClick: () -> Unit
-) {
-    Card(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = vault.name,
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = vault.provider,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Text(
-                text = if (vault.isLocked) "🔒" else "🔓",
-                style = MaterialTheme.typography.headlineMedium
-            )
-        }
-    }
-}
-
-data class VaultInfo(
-    val id: String,
-    val name: String,
-    val provider: String,
-    val isLocked: Boolean = true
-)

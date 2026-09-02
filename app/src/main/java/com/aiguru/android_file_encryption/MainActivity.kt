@@ -17,35 +17,49 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
-import com.aiguru.android_file_encryption.auth.AuthManager
+import com.aiguru.android_file_encryption.storage.SafStorageManager
 import com.aiguru.android_file_encryption.ui.screens.HomeScreen
-import com.aiguru.android_file_encryption.ui.screens.AddAccountScreen
-import com.aiguru.android_file_encryption.ui.screens.FolderPickerScreen
-import com.aiguru.android_file_encryption.ui.screens.CloudProvider
+import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
 import com.aiguru.android_file_encryption.ui.theme.Android_File_EncryptionTheme
 
 class MainActivity : ComponentActivity() {
-    private lateinit var authManager: AuthManager
-    private lateinit var googleDriveManager: com.aiguru.android_file_encryption.cloud.GoogleDriveManager
-    private lateinit var googleSignInLauncher: ActivityResultLauncher<android.content.Intent>
+    private lateinit var safStorage: SafStorageManager
+    private lateinit var pqCrypto: com.aiguru.android_file_encryption.security.HybridPQCrypto
+
+    private lateinit var folderPickerLauncher: ActivityResultLauncher<android.content.Intent>
+    private lateinit var openFileLauncher: ActivityResultLauncher<Array<String>>
+
+    // invoked when the SAF folder picker returns
+    private var pendingFolderCallback: ((String?) -> Unit)? = null
+    // invoked when the user picks a file to add to the vault
+    private var pendingFileCallback: ((android.net.Uri?) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // Initialize AuthManager and GoogleDriveManager
-        authManager = AuthManager(this)
-        googleDriveManager = com.aiguru.android_file_encryption.cloud.GoogleDriveManager(this)
+        safStorage = SafStorageManager(this)
+        pqCrypto = com.aiguru.android_file_encryption.security.HybridPQCrypto(this)
+        pqCrypto.ensureVaultKeys()
 
-        // Set up Google Sign-In result handler
-        googleSignInLauncher = registerForActivityResult(
+        folderPickerLauncher = registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
-            if (result.resultCode == RESULT_OK) {
-                result.data?.let { data ->
-                    // Handle authentication result - this will be called from the composable
-                    handleSignInResult(data)
-                }
+            val cb = pendingFolderCallback
+            pendingFolderCallback = null
+            val uri = if (result.resultCode == RESULT_OK) result.data?.data else null
+            if (uri != null) {
+                val name = safStorage.onFolderPicked(uri)
+                Toast.makeText(this, "Vault location: $name", Toast.LENGTH_SHORT).show()
+                cb?.invoke(name)
+            } else {
+                cb?.invoke(null)
             }
+        }
+
+        openFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            val cb = pendingFileCallback
+            pendingFileCallback = null
+            cb?.invoke(uri)
         }
 
         enableEdgeToEdge()
@@ -54,9 +68,16 @@ class MainActivity : ComponentActivity() {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     AppNavigation(
                         modifier = Modifier.padding(innerPadding),
-                        authManager = authManager,
-                        googleDriveManager = googleDriveManager,
-                        onStartGoogleSignIn = { startGoogleSignIn() },
+                        saf = safStorage,
+                        pq = pqCrypto,
+                        launchFolderPicker = { onDone ->
+                            pendingFolderCallback = onDone
+                            folderPickerLauncher.launch(safStorage.openFolderPickerIntent())
+                        },
+                        launchFilePicker = { onDone ->
+                            pendingFileCallback = onDone
+                            openFileLauncher.launch(arrayOf("*/*"))
+                        },
                         onShowToast = { message ->
                             Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
                         }
@@ -65,73 +86,41 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-
-    private fun startGoogleSignIn() {
-        try {
-            val signInIntent = authManager.getSignInIntent()
-            googleSignInLauncher.launch(signInIntent)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Failed to start Google Sign-In", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private fun handleSignInResult(data: android.content.Intent) {
-        val success = authManager.handleSignInResult(data)
-        if (success) {
-            // Navigate to folder picker instead of just showing toast
-            // This will be handled by the composable navigation
-            Toast.makeText(this@MainActivity, "Authentication successful! Select a folder for your vault.", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this@MainActivity, "Authentication failed", Toast.LENGTH_SHORT).show()
-        }
-    }
 }
 
 @Composable
 fun AppNavigation(
     modifier: Modifier = Modifier,
-    authManager: com.aiguru.android_file_encryption.auth.AuthManager,
-    googleDriveManager: com.aiguru.android_file_encryption.cloud.GoogleDriveManager,
-    onStartGoogleSignIn: () -> Unit = {},
+    saf: SafStorageManager,
+    pq: com.aiguru.android_file_encryption.security.HybridPQCrypto,
+    launchFolderPicker: ((String?) -> Unit) -> Unit,
+    launchFilePicker: ((android.net.Uri?) -> Unit) -> Unit,
     onShowToast: (String) -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf("home") }
-    var selectedProvider by remember { mutableStateOf<CloudProvider?>(null) }
 
     when (currentScreen) {
         "home" -> HomeScreen(
-            onAddAccount = { currentScreen = "add_account" },
-            onVaultSelected = { vaultId -> /* TODO: Navigate to vault */ }
-        )
-        "add_account" -> AddAccountScreen(
-            onProviderSelected = { provider ->
-                selectedProvider = provider
-                when (provider) {
-                    CloudProvider.GoogleDrive -> {
-                        onStartGoogleSignIn()
-                        // After successful auth, navigate to folder picker
-                        currentScreen = "folder_picker"
-                    }
-                    CloudProvider.OneDrive -> {
-                        // TODO: Implement OneDrive authentication
-                        onShowToast("OneDrive authentication coming soon!")
-                        currentScreen = "home"
-                    }
-                    else -> {
-                        onShowToast("${provider.displayName} coming soon!")
-                        currentScreen = "home"
+            hasLocation = saf.hasLocation(),
+            locationName = saf.locationName(),
+            onPickLocation = {
+                launchFolderPicker { picked ->
+                    if (picked != null) {
+                        // Location saved — flow straight into the vault
+                        currentScreen = "vault"
                     }
                 }
             },
-            onBack = { currentScreen = "home" }
+            onVaultSelected = {
+                if (saf.hasLocation()) currentScreen = "vault" else onShowToast("Pick a vault location first")
+            }
         )
-        "folder_picker" -> FolderPickerScreen(
-            onFolderSelected = { folderId, folderName ->
-                // TODO: Create vault in selected folder
-                onShowToast("Vault created in: $folderName")
-                currentScreen = "home"
-            },
-            onBack = { currentScreen = "add_account" }
+        "vault" -> VaultBrowserScreen(
+            saf = saf,
+            pq = pq,
+            launchFilePicker = launchFilePicker,
+            onNavigateBack = { currentScreen = "home" },
+            onShowToast = onShowToast
         )
     }
 }

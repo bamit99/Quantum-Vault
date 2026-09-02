@@ -93,6 +93,9 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     
+    // Post-quantum crypto (ML-KEM-768 / X25519) — Bouncy Castle
+    implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
+
     // Networking
     implementation(libs.retrofit)
     implementation(libs.retrofit.gson)

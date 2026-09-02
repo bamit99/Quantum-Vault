@@ -87,12 +87,15 @@ class GoogleDriveManager(private val context: Context) {
     }
 
     /**
-     * Upload encrypted file to Google Drive
+     * Upload encrypted file to Google Drive.
+     * When a HybridPQCrypto instance is provided, data is hybrid-PQ encrypted (QVAULT v1)
+     * before upload — harvest-now-decrypt-later resistant. Otherwise uploaded as-is.
      */
     suspend fun uploadFile(
         fileName: String,
         data: ByteArray,
-        mimeType: String = "application/octet-stream"
+        mimeType: String = "application/octet-stream",
+        pqCrypto: com.aiguru.android_file_encryption.security.HybridPQCrypto? = null
     ): String = withContext(Dispatchers.IO) {
         try {
             val folderId = rootFolderId ?: getOrCreateRootFolder()
@@ -101,14 +104,20 @@ class GoogleDriveManager(private val context: Context) {
                 .setName(fileName)
                 .setParents(listOf(folderId))
 
-            val inputStream = data.inputStream()
+            val payload = if (pqCrypto != null) {
+                Timber.d("Hybrid-PQ encrypting $fileName before upload (QVAULT v1)")
+                pqCrypto.hybridEncrypt(data)
+            } else {
+                data
+            }
+            val inputStream = payload.inputStream()
             val mediaContent = com.google.api.client.http.InputStreamContent(mimeType, inputStream)
 
             val file = driveService?.files()?.create(fileMetadata, mediaContent)
                 ?.setFields("id, name, size, createdTime")
                 ?.execute()
 
-            Timber.d("File uploaded to Google Drive: ${file?.name} (ID: ${file?.id})")
+            Timber.d("File uploaded to Google Drive: ${file?.name} (ID: ${file?.id}, PQ: ${pqCrypto != null})")
             file?.id ?: throw IOException("Failed to upload file")
         } catch (e: Exception) {
             Timber.e(e, "Failed to upload file to Google Drive")
@@ -117,19 +126,37 @@ class GoogleDriveManager(private val context: Context) {
     }
 
     /**
-     * Download file from Google Drive
+     * Download file from Google Drive (raw bytes — decrypt with HybridPQCrypto.hybridDecrypt
+     * or EncryptionManager.decrypt depending on the blob's QVAULT magic header).
      */
     suspend fun downloadFile(fileId: String): ByteArray = withContext(Dispatchers.IO) {
         try {
             val outputStream = ByteArrayOutputStream()
             driveService?.files()?.get(fileId)?.executeMediaAndDownloadTo(outputStream)
-            
+
             val data = outputStream.toByteArray()
             Timber.d("File downloaded from Google Drive: $fileId (${data.size} bytes)")
             data
         } catch (e: Exception) {
             Timber.e(e, "Failed to download file from Google Drive")
             throw IOException("File download failed", e)
+        }
+    }
+
+    /**
+     * Download + auto-decrypt: detects QVAULT v1 blobs and decrypts via HybridPQCrypto;
+     * legacy AES blobs decrypt with [legacyKey]; anything else returns raw.
+     */
+    suspend fun downloadAndDecrypt(
+        fileId: String,
+        pqCrypto: com.aiguru.android_file_encryption.security.HybridPQCrypto? = null,
+        legacyKey: javax.crypto.SecretKey? = null
+    ): ByteArray = withContext(Dispatchers.IO) {
+        val raw = downloadFile(fileId)
+        if (pqCrypto != null && raw.size > 6 && raw[0] == 0x51.toByte() && raw[1] == 0x56.toByte()) {
+            pqCrypto.hybridDecrypt(raw, legacyKey)
+        } else {
+            raw
         }
     }
 

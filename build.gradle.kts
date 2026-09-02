@@ -6,11 +6,5 @@ plugins {
     alias(libs.plugins.ksp) apply false
 }
 
-buildscript {
-    dependencies {
-        classpath("com.google.gms:google-services:4.4.1")
-    }
-}
-
-// Apply Google Services plugin
-apply(plugin = "com.google.gms.google-services")
+// NOTE: google-services plugin removed — Firebase auth is not used; Drive uses Google Sign-In.
+// Re-add classpath("com.google.gms:google-services:4.4.1") + apply() + google-services.json if Firebase is ever needed.
