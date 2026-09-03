@@ -5,10 +5,29 @@
 > **Versioning note:** public versioning restarted at **v1.0** (2026-09-03). Internal pre-1.0
 > tags/releases (v3.1-pq-saf … v4.2) were retired from GitHub; commits referencing them remain in history.
 
-## Current milestone: v1.0 — PUBLIC RELEASE, BUILDING GREEN ✅
+## Current milestone: v1.0 — PUBLIC RELEASE, RELEASE-SIGNED ✅
 
-**APK (debug-signed, installable):**
-- GitHub release asset `app-debug.apk` (33,274,930 bytes) — the v1.0 published build
+**APK (release-signed, installable):**
+- GitHub release asset `QuantumVault-v1.0.apk` (20,968,312 bytes) — the v1.0 published build
+- Signing: `keystore/quantum-vault-release.keystore` (gitignored), alias `quantumvault`,
+  RSA-4096 PKCS12, 30-yr validity, cert SHA-256 `d5c75b68...e409ab`, CN=Amit Bhatnagar.
+  **Password lives in KeePass DB → 'Quantum Vault release keystore' (Infrastructure group).
+  NEVER lose keystore+password — future updates must install over this signature.**
+- Signing config: user-global `~/.gradle/gradle.properties` (`keystore.file/password/alias`,
+  `keystore.file` needs `D\\:` escaping) read by `app/build.gradle.kts` via `findProperty` —
+  no secrets in repo. Build: `./gradlew assembleRelease`.
+- ⚠️ Cert differs from old debug APK → old installs must uninstall before installing this.
+- Naming convention for future release assets: `QuantumVault-vX.Y.apk`
+
+**Public v1.0 milestone (2026-09-03, all verified):**
+- Version reset: pre-1.0 tags (v3.1-pq-saf, v4.0-pq-recovery, v4.1c-g, v4.2) + releases
+  deleted from GitHub + local; only tag/release = v1.0 (Latest)
+- Docs renumbered: README 'Shipped (v1.0)' + cinematic option-B intro + platform note
+  ('Android today — iOS follows in a few weeks', commit b3340e7); SECURITY_AUDIT
+  de-versioned ('pre-1.0 audit'); ROADMAP shipped items checked
+- Repo: public bamit99/Quantum-Vault; license = custom (personal free, commercial needs
+  permission; PolyForm Noncommercial 1.0.0 is closest standard if ever swapped)
+- iOS version planned ('follows in a few weeks' per amitb)
 
 ## Architecture (v1.0) — SAF replaced ALL cloud OAuth
 
@@ -75,13 +94,25 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
 - [ ] `ShareDecrypted` writes plaintext to cacheDir (cleaned by OS, but consider
       in-memory view or explicit wipe after open)
 - [ ] No biometric gate before opening the vault (BiometricManager exists, unwired)
-- [ ] Release build (minify, signing config) — currently debug only
+- [x] ~~Release build (minify, signing config)~~ — DONE 2026-09-03: release-signed
+      keystore wired, v1.0 asset swapped on GitHub. R8/minify still off (next).
 - [ ] Dormant OAuth managers + HomeViewModel/CloudViewModel/FileViewModel are dead
       code — decide: delete or keep
 - [ ] requirements.md still describes the old OAuth architecture
 - [ ] Settings screen is placeholder
 - [ ] `pendingFileCallback`/`pendingFolderCallback` are process-death-fragile
       (fine for now)
+
+## Next session queue (2026-09-04) — start here
+
+1. **R8/minify for release build** (README 'Next' queue top item) — then re-verify
+   ML-KEM/X25519/BC classes survive ProGuard rules.
+2. **Run the 5 instrumented PQ tests on device/emulator** (Pixel_10_Pro AVD exists).
+3. **Biometric gate** before vault open (BiometricManager exists, unwired).
+4. **Delete/rename in vault browser**.
+5. **iOS kickoff planning** (promised 'a few weeks') — decide approach before starting.
+6. WhatsApp-group definition final copy is done (English casual, approved); README
+   intro = option B; no pending copy work.
 
 ## Repo logistics
 
