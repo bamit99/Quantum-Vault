@@ -1,6 +1,6 @@
 # Quantum Vault 🔐
 
-**Post-quantum encrypted file vault for Android.** Files are encrypted on-device with hybrid post-quantum cryptography before they ever leave your phone, stored in *any* folder you choose (Google Drive, OneDrive, local storage) via the Android Storage Access Framework — no OAuth, no cloud SDK, no account wiring.
+**Your files, sealed before they ever leave your hands.** Quantum Vault encrypts every file on-device with NIST-standardized post-quantum cryptography — ML-KEM-768 wrapped around every byte — and tucks it into any folder you choose: Google Drive, OneDrive, local storage. No OAuth. No cloud SDK. No account. Just a vault that travels with your files.
 
 > © 2026 [Amit Bhatnagar](https://www.linkedin.com/in/amitxbhatnagar/) — free for personal use; commercial use requires prior permission. See [LICENSE.md](LICENSE.md).
 
