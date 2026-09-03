@@ -19,6 +19,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            // Keystore path/password resolve from gradle.properties (keystore.* keys).
+            // NEVER hardcode them here — gradle.properties is user-local and gitignored.
+            val ksFile = project.findProperty("keystore.file") as? String
+            val ksPass = project.findProperty("keystore.password") as? String
+            val ksAlias = project.findProperty("keystore.alias") as? String
+            if (ksFile != null && ksPass != null && ksAlias != null) {
+                storeFile = file(ksFile)
+                storePassword = ksPass
+                keyAlias = ksAlias
+                keyPassword = ksPass
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
@@ -26,6 +42,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            signingConfig = signingConfigs.getByName("release")
         }
     }
     compileOptions {
