@@ -9,7 +9,10 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +106,32 @@ fun AppNavigation(
 ) {
     var currentScreen by remember { mutableStateOf("home") }
     val context = androidx.compose.ui.platform.LocalContext.current
+    var showExitDialog by remember { mutableStateOf(false) }
+
+    // Back UX: main screen asks before exit; every other screen returns to main.
+    androidx.activity.compose.BackHandler(enabled = currentScreen != "home") {
+        currentScreen = "home"
+    }
+    androidx.activity.compose.BackHandler(enabled = currentScreen == "home") {
+        showExitDialog = true
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Exit Quantum Vault?") },
+            text = { Text("Your vault stays encrypted and your location is remembered. You can pick up right where you left off.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExitDialog = false
+                    (context as? android.app.Activity)?.finish()
+                }) { Text("Exit") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) { Text("Stay") }
+            }
+        )
+    }
 
     // main-thread dispatcher usable from worker threads inside this composable scope
     val onMain: (Runnable) -> Unit = { r ->
