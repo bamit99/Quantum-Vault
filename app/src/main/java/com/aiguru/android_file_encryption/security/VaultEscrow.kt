@@ -99,6 +99,32 @@ object VaultEscrow {
     fun isEscrowBlob(blob: ByteArray): Boolean =
         blob.size > MAGIC.size && (0 until MAGIC.size).all { blob[it] == MAGIC[it] }
 
+    /**
+     * Verify [passphrase] against an escrow blob WITHOUT importing anything.
+     * Costs one Argon2id derivation (~0.5-1.5s) — the unlock gate.
+     * Returns false on wrong passphrase (GCM auth failure) or corrupt blob.
+     */
+    fun verifyPassphrase(blob: ByteArray, passphrase: CharArray): Boolean {
+        return try {
+            require(blob.size > MAGIC.size + PassphraseKDF.SALT_LEN + IV_LEN + 16) { "blob too small" }
+            for (i in MAGIC.indices) {
+                if (blob[i] != MAGIC[i]) return false
+            }
+            var off = MAGIC.size
+            val escrowSalt = blob.copyOfRange(off, off + PassphraseKDF.SALT_LEN); off += PassphraseKDF.SALT_LEN
+            val iv = blob.copyOfRange(off, off + IV_LEN); off += IV_LEN
+            val ct = blob.copyOfRange(off, blob.size)
+
+            val kek = PassphraseKDF.derive(passphrase, escrowSalt)
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, SecretKeySpec(kek, "AES"), javax.crypto.spec.GCMParameterSpec(TAG_BITS, iv))
+            c.doFinal(ct)
+            true
+        } catch (e: Exception) {
+            false
+        }
+    }
+
     /** SHA-256 fingerprint (base64) of the vault public halves — identity check after restore. */
     fun fingerprint(pubMlkem: ByteArray, pubX25519: ByteArray): String {
         val digest = org.bouncycastle.crypto.digests.SHA256Digest()

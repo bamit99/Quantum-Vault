@@ -17,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
@@ -27,6 +28,7 @@ import com.aiguru.android_file_encryption.ui.screens.HomeScreen
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultRestoreScreen
+import com.aiguru.android_file_encryption.ui.screens.VaultUnlockScreen
 import com.aiguru.android_file_encryption.ui.theme.Android_File_EncryptionTheme
 
 class MainActivity : ComponentActivity() {
@@ -107,6 +109,10 @@ fun AppNavigation(
     var currentScreen by remember { mutableStateOf("home") }
     val context = androidx.compose.ui.platform.LocalContext.current
     var showExitDialog by remember { mutableStateOf(false) }
+    // session unlock state: vault stays locked until passphrase verified (once per app open)
+    var unlocked by rememberSaveable { mutableStateOf(false) }
+    var unlockBusy by remember { mutableStateOf(false) }
+    var unlockError by remember { mutableStateOf<String?>(null) }
 
     // Back UX: main screen asks before exit; every other screen returns to main.
     androidx.activity.compose.BackHandler(enabled = currentScreen != "home") {
@@ -158,7 +164,44 @@ fun AppNavigation(
                 currentScreen = "about"
             },
             onVaultSelected = {
-                if (saf.hasLocation()) currentScreen = "vault" else onShowToast("Pick a vault location first")
+                if (!saf.hasLocation()) {
+                    onShowToast("Pick a vault location first")
+                } else if (!unlocked) {
+                    unlockError = null
+                    currentScreen = "unlock"
+                } else {
+                    currentScreen = "vault"
+                }
+            }
+        )
+        "unlock" -> VaultUnlockScreen(
+            locationName = saf.locationName(),
+            busy = unlockBusy,
+            error = unlockError,
+            onPassphraseSubmit = { pass ->
+                unlockBusy = true
+                unlockError = null
+                Thread {
+                    try {
+                        val escrowUri = saf.findChild(VaultEscrow.FILE_NAME)
+                            ?: throw IllegalStateException("No .vaultkey found in vault location")
+                        val ok = VaultEscrow.verifyPassphrase(saf.read(escrowUri), pass)
+                        onMain {
+                            unlockBusy = false
+                            if (ok) {
+                                unlocked = true
+                                currentScreen = "vault"
+                            } else {
+                                unlockError = "Wrong passphrase"
+                            }
+                        }
+                    } catch (e: Exception) {
+                        onMain {
+                            unlockBusy = false
+                            unlockError = e.message ?: "Verification failed"
+                        }
+                    }
+                }.start()
             }
         )
         "about" -> AboutScreen(onBack = { currentScreen = "home" })
@@ -195,7 +238,7 @@ fun AppNavigation(
                         val escrowUri = saf.findChild(VaultEscrow.FILE_NAME)
                             ?: throw IllegalStateException(".vaultkey not found in vault location")
                         val fp = VaultEscrow.restoreInto(pq, saf.read(escrowUri), pass)
-                        onMain { result(fp); currentScreen = "vault" }
+                        onMain { result(fp); unlocked = true; currentScreen = "vault" }
                     } catch (e: Exception) {
                         onMain { result(null) }
                     }
@@ -203,12 +246,40 @@ fun AppNavigation(
             },
             onShowToast = onShowToast
         )
-        "vault" -> VaultBrowserScreen(
-            saf = saf,
-            pq = pq,
-            launchFilePicker = launchFilePicker,
-            onNavigateBack = { currentScreen = "home" },
-            onShowToast = onShowToast
-        )
+        "vault" -> if (unlocked) {
+            VaultBrowserScreen(
+                saf = saf,
+                pq = pq,
+                launchFilePicker = launchFilePicker,
+                onNavigateBack = { currentScreen = "home" },
+                onShowToast = onShowToast
+            )
+        } else {
+            // direct navigation into locked vault (e.g. after process death) → gate
+            currentScreen = "unlock"
+            VaultUnlockScreen(
+                locationName = saf.locationName(),
+                busy = unlockBusy,
+                error = unlockError,
+                onPassphraseSubmit = { pass ->
+                    unlockBusy = true
+                    unlockError = null
+                    Thread {
+                        try {
+                            val escrowUri = saf.findChild(VaultEscrow.FILE_NAME)
+                                ?: throw IllegalStateException("No .vaultkey found in vault location")
+                            val ok = VaultEscrow.verifyPassphrase(saf.read(escrowUri), pass)
+                            onMain {
+                                unlockBusy = false
+                                if (ok) { unlocked = true; currentScreen = "vault" }
+                                else unlockError = "Wrong passphrase"
+                            }
+                        } catch (e: Exception) {
+                            onMain { unlockBusy = false; unlockError = e.message ?: "Verification failed" }
+                        }
+                    }.start()
+                }
+            )
+        }
     }
 }
