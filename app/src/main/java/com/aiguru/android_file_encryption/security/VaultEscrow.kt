@@ -91,7 +91,7 @@ object VaultEscrow {
         val pubX25519 = payload.copyOfRange(payload.size - X25519_PUB_LEN, payload.size)
 
         val fp = pq.importEscrowedKeys(xPriv, mlkemPriv = mlkemPriv, pubMlkem = pubMlkem, pubX25519 = pubX25519)
-        Timber.i("Vault keys restored from escrow (fingerprint ${fp.take(16)}…)")
+        // No fingerprint logging (audit P2-4) — even a prefix is unnecessary exposure.
         return fp
     }
 

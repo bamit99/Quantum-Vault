@@ -201,6 +201,12 @@ class HybridPQCrypto(private val context: Context) {
             out = out.plus(wrappedDevice)
             out = out.plus(payloadIv)
             out = out.plus(payloadCt)
+
+            // Best-effort zeroization of transient key material (audit P1-2)
+            java.util.Arrays.fill(fileKey, 0)
+            java.util.Arrays.fill(kek, 0)
+            java.util.Arrays.fill(sharedClassical, 0)
+            java.util.Arrays.fill(sharedPQ, 0)
             return out
         }
 
@@ -208,6 +214,7 @@ class HybridPQCrypto(private val context: Context) {
         val argonSalt = PassphraseKDF.newSalt()
         val passKek = PassphraseKDF.derive(passphrase, argonSalt)
         val wrappedPass = aesGcm(encrypt = true, key = passKek, data = fileKey)
+        java.util.Arrays.fill(passKek, 0)
 
         var out = MAGIC
         out = out.plus(FORMAT_V2.toByte())
@@ -219,6 +226,12 @@ class HybridPQCrypto(private val context: Context) {
         out = out.plus(wrappedPass)
         out = out.plus(payloadIv)
         out = out.plus(payloadCt)
+
+        // Best-effort zeroization of transient key material (audit P1-2)
+        java.util.Arrays.fill(fileKey, 0)
+        java.util.Arrays.fill(kek, 0)
+        java.util.Arrays.fill(sharedClassical, 0)
+        java.util.Arrays.fill(sharedPQ, 0)
         return out
     }
 
@@ -281,14 +294,20 @@ class HybridPQCrypto(private val context: Context) {
 
             // Device KEK → unwrap FileKey
             val kek = hkdf(sharedClassical.plus(sharedPQ), salt)
-            aesGcm(encrypt = false, key = kek, data = wrappedDevice)
+            java.util.Arrays.fill(sharedClassical, 0)
+            java.util.Arrays.fill(sharedPQ, 0)
+            val fk = aesGcm(encrypt = false, key = kek, data = wrappedDevice)
+            java.util.Arrays.fill(kek, 0)
+            fk
         } catch (e: Exception) {
             // ── Leg 2: passphrase — fully independent of device private keys.
             // Works on a fresh device (post-format, pre-restore) for v2 blobs.
             if (version == FORMAT_V2 && wrappedPass != null && argonSalt != null && passphrase != null) {
                 try {
                     val passKek = PassphraseKDF.derive(passphrase, argonSalt)
-                    aesGcm(encrypt = false, key = passKek, data = wrappedPass)
+                    val fk = aesGcm(encrypt = false, key = passKek, data = wrappedPass)
+                    java.util.Arrays.fill(passKek, 0)
+                    fk
                 } catch (pEx: Exception) {
                     throw SecurityException("File key unwrap failed (device keys unavailable and passphrase incorrect)", pEx)
                 }
@@ -296,7 +315,9 @@ class HybridPQCrypto(private val context: Context) {
                 throw SecurityException("File key unwrap failed (device key + passphrase both unavailable/incorrect)", e)
             }
         }
-        return aesGcm(encrypt = false, key = fileKey, data = payload)
+        val plaintext = aesGcm(encrypt = false, key = fileKey, data = payload)
+        java.util.Arrays.fill(fileKey, 0)
+        return plaintext
     }
 
     /** True if [blob] is a QVAULT v2 (passphrase-capable) file. */

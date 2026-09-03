@@ -63,7 +63,7 @@ dependencies {
     
     // Security & Encryption
     implementation(libs.androidx.security.crypto)
-    implementation(libs.androidx.biometric)
+    implementation(libs.androidx.biometric) // dormant legacy path (BiometricManager) — keep until v5 decision
     
     // Cloud Storage
     implementation(libs.google.api.client.android)

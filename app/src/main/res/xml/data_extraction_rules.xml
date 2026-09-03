@@ -1,19 +1,18 @@
-<?xml version="1.0" encoding="utf-8"?><!--
-   Sample data extraction rules file; uncomment and customize as necessary.
-   See https://developer.android.com/about/versions/12/backup-restore#xml-changes
-   for details.
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Quantum Vault backup/extraction policy: NOTHING sensitive leaves the device.
+  The PQ private halves (sealed blob) live in the 'pq_vault' shared-prefs file,
+  wrapped by this device's Keystore key. Excluding it explicitly makes D2D
+  migration deterministic: a new device NEVER receives a sealed blob it cannot
+  unseal — recovery always goes through the passphrase escrow instead.
+  (SafStorageManager's location prefs are intentionally INCLUDED so the
+  remembered vault location survives device transfer.)
 -->
 <data-extraction-rules>
     <cloud-backup>
-        <!-- TODO: Use <include> and <exclude> to control what is backed up.
-        <include .../>
-        <exclude .../>
-        -->
+        <exclude domain="sharedpref" path="pq_vault.xml" />
     </cloud-backup>
-    <!--
     <device-transfer>
-        <include .../>
-        <exclude .../>
+        <exclude domain="sharedpref" path="pq_vault.xml" />
     </device-transfer>
-    -->
 </data-extraction-rules>
