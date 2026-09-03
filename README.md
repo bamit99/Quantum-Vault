@@ -35,11 +35,11 @@ Every encrypted file you store in the cloud today can be **harvested now and dec
 
 ## Is it *truly* quantum-resistant? (honest answer)
 
-**Yes for what the app itself does — with two scope caveats:**
+**Post-quantum by design — resistant against currently known attacks, with two scope caveats.** This is an application-layer construction (ML-KEM + X25519 + AES-GCM); absolute claims would require independent review. What we can say precisely:
 
-1. ✅ **What's protected:** every byte we encrypt uses X25519 ‖ ML-KEM-768 hybrid KEM → AES-256-GCM. Breaking it requires defeating *both* classical ECC *and* Kyber. AES-256 and SHA-256 are quantum-fine (Grover only halves their effective strength). No RSA/ECDSA anywhere in the crypto path.
+1. ✅ **What's protected:** every byte we encrypt uses X25519 ‖ ML-KEM-768 hybrid KEM → AES-256-GCM. Breaking it requires defeating *both* classical ECC *and* Kyber under currently known algorithms. AES-256 and SHA-256 are quantum-fine (Grover only halves their effective strength). No RSA/ECDSA anywhere in the crypto path.
 2. ⚠️ **Transport:** upload/download rides on the SAF provider's HTTPS (the Drive/OneDrive app's TLS). That TLS is classical-unless-Google-enables-PQC — but TLS only protects data *in flight*; your data at rest is our ciphertext either way, and that's what quantum-vaulting is for.
-3. ⚠️ **Metadata:** cloud providers still see *that* files exist, their sizes, timestamps — not contents. (We never see them either: no accounts, no servers.)
+3. ⚠️ **Metadata:** cloud providers still see *that* files exist, their sizes, timestamps — not contents. (We never see them either: zero permissions, no accounts, no servers.)
 
 ## Build
 
@@ -55,8 +55,9 @@ Requirements: Android 8.0+ (SAF), BouncyCastle `bcprov-jdk18on:1.85.2` (already 
 
 See [ROADMAP.md](ROADMAP.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-- **Shipped (v4.1c):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), passphrase setup + per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, About + license.
-- **Next:** location intelligence (cloud-vs-local detection + recommendations), provider-aware quick-choose, on-device test suite run.
+- **Shipped (v4.2):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, vault lifecycle (vault-exists guard, two-tier delete: Unlink / typed-DESTROY), **zero-permission manifest**, key-material zeroization, backup-transfer excludes, location intelligence (cloud-vs-local detection + recommendations), provider-aware quick-choose, brand icon, About + license, published security audit.
+- **Next:** signed release build (R8), on-device test suite run, offline-handling UX (network-vs-auth error distinction, escrow caching), biometric quick-unlock.
+- Security status: [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — P0 fixed (v4.1d), P1/P2 findings tracked in-repo.
 
 ## Security disclosure
 
