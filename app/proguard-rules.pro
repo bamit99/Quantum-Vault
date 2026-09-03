@@ -19,3 +19,7 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# ── BouncyCastle PQC + Argon2 (reflection-based provider machinery) ──
+-keep class org.bouncycastle.** { *; }
+-dontwarn org.bouncycastle.**
+-keepclassmembers class * extends org.bouncycastle.jcajce.provider.BouncyCastleProvider { *; }

@@ -18,8 +18,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 
 import com.aiguru.android_file_encryption.storage.SafStorageManager
+import com.aiguru.android_file_encryption.security.VaultEscrow
 import com.aiguru.android_file_encryption.ui.screens.HomeScreen
+import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
+import com.aiguru.android_file_encryption.ui.screens.VaultRestoreScreen
 import com.aiguru.android_file_encryption.ui.theme.Android_File_EncryptionTheme
 
 class MainActivity : ComponentActivity() {
@@ -98,6 +101,13 @@ fun AppNavigation(
     onShowToast: (String) -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf("home") }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    // main-thread dispatcher usable from worker threads inside this composable scope
+    val onMain: (Runnable) -> Unit = { r ->
+        if (context is android.app.Activity) context.runOnUiThread(r)
+        else { val h = android.os.Handler(android.os.Looper.getMainLooper()); h.post(r) }
+    }
 
     when (currentScreen) {
         "home" -> HomeScreen(
@@ -106,14 +116,58 @@ fun AppNavigation(
             onPickLocation = {
                 launchFolderPicker { picked ->
                     if (picked != null) {
-                        // Location saved — flow straight into the vault
-                        currentScreen = "vault"
+                        // Fresh location: set a passphrase now, write escrow, then enter vault
+                        currentScreen = "passphrase_setup"
                     }
                 }
+            },
+            onRestoreRequested = {
+                currentScreen = "restore"
             },
             onVaultSelected = {
                 if (saf.hasLocation()) currentScreen = "vault" else onShowToast("Pick a vault location first")
             }
+        )
+        "passphrase_setup" -> PassphraseSetupScreen(
+            title = "Create vault passphrase",
+            confirmLabel = "Create vault",
+            onBack = { currentScreen = "home" },
+            onConfirm = { pass ->
+                // write escrow .vaultkey into the picked location, then enter vault
+                Thread {
+                    try {
+                        val blob = com.aiguru.android_file_encryption.security.VaultEscrow.export(pq, pass)
+                        saf.save(com.aiguru.android_file_encryption.security.VaultEscrow.FILE_NAME, blob, "application/octet-stream")
+                        onMain {
+                            onShowToast("Escrow saved to vault location ✓")
+                            currentScreen = "vault"
+                        }
+                    } catch (e: Exception) {
+                        onMain { onShowToast("Escrow export failed: ${e.message}") }
+                    }
+                }.start()
+            },
+            onShowToast = onShowToast
+        )
+        "restore" -> VaultRestoreScreen(
+            escrowFound = true, // checked at folder pick; refine when we have tree listing here
+            locationName = saf.locationName(),
+            onBack = { currentScreen = "home" },
+            onRestore = { pass, result ->
+                Thread {
+                    try {
+                        val tree = saf.locationUri()
+                            ?: throw IllegalStateException("No vault location picked")
+                        val escrowUri = saf.findChild(VaultEscrow.FILE_NAME)
+                            ?: throw IllegalStateException(".vaultkey not found in vault location")
+                        val fp = VaultEscrow.restoreInto(pq, saf.read(escrowUri), pass)
+                        onMain { result(fp); currentScreen = "vault" }
+                    } catch (e: Exception) {
+                        onMain { result(null) }
+                    }
+                }.start()
+            },
+            onShowToast = onShowToast
         )
         "vault" -> VaultBrowserScreen(
             saf = saf,

@@ -72,7 +72,8 @@ class HybridPQCrypto(private val context: Context) {
 
     companion object {
         val MAGIC: ByteArray = byteArrayOf(0x51, 0x56, 0x41, 0x55, 0x4C, 0x54) // "QVAULT"
-        const val FORMAT_VERSION: Int = 1
+        const val FORMAT_VERSION: Int = 1   // v1: device-wrap only
+        const val FORMAT_V2: Int = 2        // v2: device-wrap + passphrase-wrap (dual)
         const val X25519_PUB_LEN = 32
         const val MLKEM768_ENCAP_LEN = 1088          // FIPS 203, k=3 (n=768): 32 + 3*352
         const val SALT_LEN = 32
@@ -147,7 +148,20 @@ class HybridPQCrypto(private val context: Context) {
      * Hybrid-encrypt [data]. The payload key is fresh per call; both KEM legs wrap it.
      * Output = QVAULT blob (self-describing, versioned).
      */
-    fun hybridEncrypt(data: ByteArray): ByteArray {
+    fun hybridEncrypt(data: ByteArray): ByteArray =
+        hybridEncryptInternal(data, passphrase = null)
+
+    /**
+     * QVAULT v2: dual-wrapped FileKey — device-key wrap AND passphrase wrap.
+     * Either factor alone can unwrap the payload (device loss → passphrase path
+     * via escrow restore; passphrase forgotten → device-key leg still works).
+     */
+    fun hybridEncrypt(data: ByteArray, passphrase: CharArray): ByteArray {
+        require(passphrase.isNotEmpty()) { "Empty passphrase" }
+        return hybridEncryptInternal(data, passphrase = passphrase)
+    }
+
+    private fun hybridEncryptInternal(data: ByteArray, passphrase: CharArray?): ByteArray {
         ensureVaultKeys()
         val mlkemPub = MLKEMPublicKeyParameters(MLKEMParameters.ml_kem_768, vaultMlkemPublicKey())
         val xPub = X25519PublicKeyParameters(vaultX25519PublicKey(), 0)
@@ -172,18 +186,37 @@ class HybridPQCrypto(private val context: Context) {
         val sharedPQ = kem.secret
         val encapsulation = kem.encapsulation
 
-        // 5. KEK = HKDF(classical || PQ, salt, info) → wrap FileKey
+        // 5. Device KEK = HKDF(classical || PQ, salt) → wrap FileKey
         val salt = ByteArray(SALT_LEN).also { SecureRandom().nextBytes(it) }
         val kek = hkdf(sharedClassical.plus(sharedPQ), salt)
-        val wrapped = aesGcm(encrypt = true, key = kek, data = fileKey)
+        val wrappedDevice = aesGcm(encrypt = true, key = kek, data = fileKey)
 
-        // 6. Assemble (explicit plus() — Kotlin has no vararg '+' for ByteArray chains)
+        if (passphrase == null) {
+            // QVAULT v1 (device-wrap only)
+            var out = MAGIC
+            out = out.plus(FORMAT_VERSION.toByte())
+            out = out.plus(ephPub)
+            out = out.plus(encapsulation)
+            out = out.plus(salt)
+            out = out.plus(wrappedDevice)
+            out = out.plus(payloadIv)
+            out = out.plus(payloadCt)
+            return out
+        }
+
+        // QVAULT v2 (device-wrap + passphrase-wrap)
+        val argonSalt = PassphraseKDF.newSalt()
+        val passKek = PassphraseKDF.derive(passphrase, argonSalt)
+        val wrappedPass = aesGcm(encrypt = true, key = passKek, data = fileKey)
+
         var out = MAGIC
-        out = out.plus(FORMAT_VERSION.toByte())
+        out = out.plus(FORMAT_V2.toByte())
         out = out.plus(ephPub)
         out = out.plus(encapsulation)
         out = out.plus(salt)
-        out = out.plus(wrapped)
+        out = out.plus(argonSalt)
+        out = out.plus(wrappedDevice)
+        out = out.plus(wrappedPass)
         out = out.plus(payloadIv)
         out = out.plus(payloadCt)
         return out
@@ -191,23 +224,52 @@ class HybridPQCrypto(private val context: Context) {
 
     /**
      * Hybrid-decrypt. Detects legacy (non-QVAULT) blobs and falls back to plain AES.
+     * Handles QVAULT v1 (device-wrap) and v2 (device + passphrase dual-wrap).
      */
-    fun hybridDecrypt(blob: ByteArray, legacyKey: SecretKey? = null): ByteArray {
+    fun hybridDecrypt(blob: ByteArray, legacyKey: SecretKey? = null): ByteArray =
+        hybridDecryptInternal(blob, passphrase = null, legacyKey = legacyKey)
+
+    /**
+     * QVAULT v2 decrypt with passphrase. Tries the passphrase wrap first (cheap GCM
+     * auth check); falls back to the device-key wrap if that fails (e.g. escrow-restored
+     * keys not needed / passphrase changed after encryption).
+     */
+    fun hybridDecrypt(blob: ByteArray, passphrase: CharArray, legacyKey: SecretKey? = null): ByteArray =
+        hybridDecryptInternal(blob, passphrase = passphrase, legacyKey = legacyKey)
+
+    private fun hybridDecryptInternal(
+        blob: ByteArray,
+        passphrase: CharArray?,
+        legacyKey: SecretKey?
+    ): ByteArray {
         if (!hasMagic(blob)) {
             requireNotNull(legacyKey) { "Not a QVAULT blob and no legacy key supplied" }
             return EncryptionManager().decrypt(blob, legacyKey)
         }
         var off = MAGIC.size
         val version = blob[off].toInt(); off += 1
-        require(version == FORMAT_VERSION) { "Unsupported QVAULT version $version" }
 
         val ephPub = blob.copyOfRange(off, off + X25519_PUB_LEN); off += X25519_PUB_LEN
         val encapsulation = blob.copyOfRange(off, off + MLKEM768_ENCAP_LEN); off += MLKEM768_ENCAP_LEN
         val salt = blob.copyOfRange(off, off + SALT_LEN); off += SALT_LEN
-        val wrapped = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
+
+        // v2 adds argonSalt + passphrase-wrapped FileKey before the payload
+        val argonSalt: ByteArray?
+        val wrappedPass: ByteArray?
+        if (version == FORMAT_V2) {
+            argonSalt = blob.copyOfRange(off, off + PassphraseKDF.SALT_LEN); off += PassphraseKDF.SALT_LEN
+            wrappedPass = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
+        } else {
+            argonSalt = null
+            wrappedPass = null
+        }
+        require(version == FORMAT_VERSION || version == FORMAT_V2) { "Unsupported QVAULT version $version" }
+
+        val wrappedDevice = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
         val payload = blob.copyOfRange(off, blob.size)
 
-        // Unseal private halves
+        // Unseal private halves (may fail on a fresh device without escrow — but the
+        // passphrase leg can still work IF we have restored keys; so require them)
         val (xPriv, kemPrivParams) = unsealVaultPrivateKey()
 
         // Classical leg
@@ -219,11 +281,64 @@ class HybridPQCrypto(private val context: Context) {
         // PQ leg
         val sharedPQ = MLKEMExtractor(kemPrivParams).extractSecret(encapsulation)
 
-        // KEK → unwrap FileKey → decrypt payload
+        // Device KEK → unwrap FileKey
         val kek = hkdf(sharedClassical.plus(sharedPQ), salt)
-        val fileKey = aesGcm(encrypt = false, key = kek, data = wrapped)
+        val fileKey: ByteArray = try {
+            aesGcm(encrypt = false, key = kek, data = wrappedDevice)
+        } catch (e: Exception) {
+            // Device-wrap failed → if v2 and passphrase available, try passphrase wrap
+            if (version == FORMAT_V2 && wrappedPass != null && argonSalt != null && passphrase != null) {
+                val passKek = PassphraseKDF.derive(passphrase, argonSalt)
+                aesGcm(encrypt = false, key = passKek, data = wrappedPass)
+            } else {
+                throw SecurityException("File key unwrap failed (device key + passphrase both unavailable/incorrect)", e)
+            }
+        }
         return aesGcm(encrypt = false, key = fileKey, data = payload)
     }
+
+    /** True if [blob] is a QVAULT v2 (passphrase-capable) file. */
+    fun isPassphraseCapable(blob: ByteArray): Boolean =
+        hasMagic(blob) && blob.size > MAGIC.size && blob[MAGIC.size].toInt() == FORMAT_V2
+
+    // ─────────────────────────── escrow bridge ───────────────────────────
+
+    /** Export the X25519 private scalar for escrow (called by VaultEscrow only). */
+    fun exportX25519PrivateForEscrow(): ByteArray =
+        unsealVaultPrivateKey().first
+
+    /** Export the ML-KEM-768 private key (encoded) for escrow (called by VaultEscrow only). */
+    fun exportMlkemPrivateForEscrow(): ByteArray =
+        unsealVaultPrivateKey().second.getEncoded()
+
+    /**
+     * Import keys recovered from an escrow blob — overwrites the local vault identity.
+     * Re-seals under the SAME Keystore wrap key. Returns the new fingerprint.
+     */
+    fun importEscrowedKeys(
+        xPriv: ByteArray,
+        mlkemPriv: ByteArray,
+        pubMlkem: ByteArray,
+        pubX25519: ByteArray
+    ): String {
+        val wrapKey = getOrCreateWrapKey()
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, wrapKey)
+        val sealedIv = cipher.iv
+        val sealedPriv = cipher.doFinal(xPriv.plus(mlkemPriv))
+
+        prefs.edit()
+            .putString(PREF_PUB, Base64.encodeToString(pubMlkem, Base64.NO_WRAP))
+            .putString(PREF_PUB_X, Base64.encodeToString(pubX25519, Base64.NO_WRAP))
+            .putString(PREF_SEALED, Base64.encodeToString(sealedIv.plus(sealedPriv), Base64.NO_WRAP))
+            .apply()
+        Timber.i("Escrowed vault keys imported into device vault")
+        return VaultEscrow.fingerprint(pubMlkem, pubX25519)
+    }
+
+    /** Current vault identity fingerprint (public halves only — safe to display). */
+    fun vaultFingerprint(): String? =
+        if (hasVaultKeys()) VaultEscrow.fingerprint(vaultMlkemPublicKey(), vaultX25519PublicKey()) else null
 
     // ─────────────────────────── internals ───────────────────────────
 

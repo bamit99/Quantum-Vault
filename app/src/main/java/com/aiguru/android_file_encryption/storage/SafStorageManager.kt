@@ -120,6 +120,33 @@ class SafStorageManager(private val context: Context) {
         return docUri!!
     }
 
+    /** Find a child document by name in the remembered tree (null if absent). */
+    fun findChild(fileName: String): Uri? {
+        val tree = locationUri() ?: return null
+        return try {
+            val parentDocId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+            val childrenUri = android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentDocId)
+            context.contentResolver.query(
+                childrenUri,
+                arrayOf(
+                    android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                    android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                ),
+                null, null, null
+            )?.use { c ->
+                while (c.moveToNext()) {
+                    if (c.getString(1) == fileName) {
+                        return android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, c.getString(0))
+                    }
+                }
+            }
+            null
+        } catch (e: Exception) {
+            Timber.w(e, "findChild($fileName) failed")
+            null
+        }
+    }
+
     /** Read a document by URI (from picker or remembered tree). */
     fun read(uri: Uri): ByteArray =
         context.contentResolver.openInputStream(uri)?.use { it.readBytes() }

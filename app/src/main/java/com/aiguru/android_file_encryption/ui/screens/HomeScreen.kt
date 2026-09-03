@@ -25,6 +25,7 @@ fun HomeScreen(
     hasLocation: Boolean,
     locationName: String?,
     onPickLocation: () -> Unit,
+    onRestoreRequested: () -> Unit = {},
     onVaultSelected: () -> Unit
 ) {
     Scaffold(
@@ -96,6 +97,9 @@ fun HomeScreen(
                 Spacer(Modifier.height(12.dp))
                 OutlinedButton(onClick = onPickLocation, modifier = Modifier.fillMaxWidth()) {
                     Text("Change location")
+                }
+                TextButton(onClick = onRestoreRequested, modifier = Modifier.fillMaxWidth()) {
+                    Text("Restore vault on this device…")
                 }
             }
         }
