@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import com.aiguru.android_file_encryption.storage.SafStorageManager
 import com.aiguru.android_file_encryption.security.VaultEscrow
 import com.aiguru.android_file_encryption.ui.screens.AboutScreen
+import com.aiguru.android_file_encryption.ui.screens.DeleteVaultScreen
 import com.aiguru.android_file_encryption.ui.screens.HomeScreen
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
@@ -152,10 +153,24 @@ fun AppNavigation(
             onPickLocation = {
                 launchFolderPicker { picked ->
                     if (picked != null) {
-                        // Fresh location: set a passphrase now, write escrow, then enter vault
-                        currentScreen = "passphrase_setup"
+                        // Vault-exists guard: does this folder already contain a vault?
+                        Thread {
+                            val existing = try { saf.findChild(VaultEscrow.FILE_NAME) } catch (e: Exception) { null }
+                            onMain {
+                                if (existing != null) {
+                                    onShowToast("This folder already contains a Quantum Vault (.vaultkey). Use 'Restore vault on this device' to adopt it, or pick a different folder.")
+                                    // Do NOT proceed to passphrase setup — vault untouched
+                                } else {
+                                    // Fresh location: set a passphrase now, write escrow, then enter vault
+                                    currentScreen = "passphrase_setup"
+                                }
+                            }
+                        }.start()
                     }
                 }
+            },
+            onDeleteVaultRequested = {
+                currentScreen = "delete_vault"
             },
             onRestoreRequested = {
                 currentScreen = "restore"
@@ -205,6 +220,50 @@ fun AppNavigation(
             }
         )
         "about" -> AboutScreen(onBack = { currentScreen = "home" })
+        "delete_vault" -> DeleteVaultScreen(
+            locationName = saf.locationName(),
+            onBack = { currentScreen = "home" },
+            onUnlinked = {
+                Thread {
+                    // Wipe local key material + forget location (cloud untouched)
+                    try { pq.wipeLocalKeys() } catch (e: Exception) { /* already clean */ }
+                    saf.forgetLocation()
+                    onMain {
+                        unlocked = false
+                        onShowToast("Vault unlinked from this device. Files remain in the cloud folder — restorable anytime.")
+                        currentScreen = "home"
+                    }
+                }.start()
+            },
+            onDestroyed = {
+                Thread {
+                    var deleted = 0; var failed = 0
+                    try {
+                        // 1. Delete escrow first (removes the recovery path)
+                        saf.findChild(VaultEscrow.FILE_NAME)?.let {
+                            if (saf.deleteDocument(it)) deleted++ else failed++
+                        }
+                        // 2. Delete every encrypted file
+                        for ((uri, _) in saf.listQvaultDocs()) {
+                            if (saf.deleteDocument(uri)) deleted++ else failed++
+                        }
+                        // 3. Wipe local keys + forget location
+                        try { pq.wipeLocalKeys() } catch (e: Exception) { }
+                        saf.forgetLocation()
+                    } catch (e: Exception) { failed++ }
+                    onMain {
+                        unlocked = false
+                        if (failed > 0) {
+                            onShowToast("Vault destroy finished with $failed error(s) — $deleted items deleted. CHECK THE FOLDER for leftovers (.vaultkey is the critical one).")
+                        } else {
+                            onShowToast("Vault destroyed — $deleted items deleted. Nothing recoverable remains.")
+                        }
+                        currentScreen = "home"
+                    }
+                }.start()
+            },
+            onShowToast = onShowToast
+        )
         "passphrase_setup" -> PassphraseSetupScreen(
             title = "Create vault passphrase",
             confirmLabel = "Create vault",

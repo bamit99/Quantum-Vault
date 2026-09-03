@@ -27,6 +27,7 @@ fun HomeScreen(
     onPickLocation: () -> Unit,
     onRestoreRequested: () -> Unit = {},
     onAboutRequested: () -> Unit = {},
+    onDeleteVaultRequested: () -> Unit = {},
     onVaultSelected: () -> Unit
 ) {
     Scaffold(
@@ -108,6 +109,13 @@ fun HomeScreen(
                 }
                 TextButton(onClick = onRestoreRequested, modifier = Modifier.fillMaxWidth()) {
                     Text("Restore vault on this device…")
+                }
+                TextButton(
+                    onClick = onDeleteVaultRequested,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                ) {
+                    Text("Delete vault…")
                 }
             }
         }

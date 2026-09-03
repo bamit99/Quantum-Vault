@@ -94,6 +94,26 @@ class HybridPQCrypto(private val context: Context) {
 
     // ─────────────────────────── vault keys ───────────────────────────
 
+    /**
+     * Wipe ALL local vault key material (uninstall-grade unlink):
+     * prefs blobs (sealed PQ privates + publics) AND the Keystore wrap key.
+     * After this, this device holds nothing of the vault — recovery only via
+     * the passphrase escrow (VaultEscrow.restoreInto). Cloud files untouched.
+     */
+    fun wipeLocalKeys() {
+        // 1. Clear prefs (sealed privates + publics)
+        prefs.edit().clear().commit()
+        // 2. Delete the Keystore wrap key so a future ensureVaultKeys() makes
+        //    a genuinely fresh keypair (not a re-wrap under the old key)
+        try {
+            val ks = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
+            if (ks.containsAlias(PQ_KEYSTORE_ALIAS)) ks.deleteEntry(PQ_KEYSTORE_ALIAS)
+        } catch (e: Exception) {
+            Timber.w(e, "Keystore wrap-key deletion failed during wipe")
+        }
+        Timber.i("Local vault key material wiped (unlink)")
+    }
+
     /** True if the on-device PQ vault keypair exists. */
     fun hasVaultKeys(): Boolean = prefs.getString(PREF_PUB, null) != null
 

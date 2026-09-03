@@ -193,6 +193,32 @@ class SafStorageManager(private val context: Context) {
         Timber.w(e, "Could not resolve display name for $uri")
         null
     }
+
+    /** Delete a document inside the remembered tree (best-effort). */
+    fun deleteDocument(uri: Uri): Boolean = try {
+        android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+    } catch (e: Exception) {
+        Timber.w(e, "Delete failed for $uri")
+        false
+    }
+
+    /** List every .qvault document in the tree (for vault destroy). */
+    fun listQvaultDocs(): List<Pair<Uri, String>> =
+        list().filter { it.name.endsWith(".qvault") }.map { it.uri to it.name }
+
+    /** Forget the remembered vault location (releases persisted permission). */
+    fun forgetLocation() {
+        val old = prefs.getString(KEY_TREE_URI, null)
+        if (old != null) {
+            try {
+                context.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(old),
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                )
+            } catch (e: Exception) { /* already gone */ }
+        }
+        prefs.edit().clear().commit()
+    }
 }
 
 data class SafFileInfo(
