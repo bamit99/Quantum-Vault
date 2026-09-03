@@ -1,16 +1,16 @@
-# PROJECT STATUS — Android_File_Encryption (dev handoff)
+# PROJECT STATUS — Quantum Vault (dev handoff)
 
-> Last updated: 2026-09-02 by Hermes (session with amitb on RAZOR, Windows 11).
+> Last updated: 2026-09-03 by Hermes (session with amitb on RAZOR, Windows 11).
 > Read this file first — it is the single source of truth for where the project stands.
+> **Versioning note:** public versioning restarted at **v1.0** (2026-09-03). Internal pre-1.0
+> tags/releases (v3.1-pq-saf … v4.2) were retired from GitHub; commits referencing them remain in history.
 
-## Current milestone: v3.1-SAF-UX — BUILDING GREEN ✅
+## Current milestone: v1.0 — PUBLIC RELEASE, BUILDING GREEN ✅
 
-**APKs (all debug-signed, installable):**
-- `D:\Projects\Android_File_Encryption\app-debug-v3.1-saf-ux.apk` ← latest (SHA256 `de94df29...add733`)
-- `app-debug-v3-saf.apk` (SHA256 `7412d0d2...57001`) — pre-UX-fix build
-- `app-debug-v2-pq.apk` (SHA256 `98b74978...415b2`) — PQ layer only, pre-SAF
+**APK (debug-signed, installable):**
+- GitHub release asset `app-debug.apk` (33,274,930 bytes) — the v1.0 published build
 
-## Architecture (v3.x) — SAF replaced ALL cloud OAuth
+## Architecture (v1.0) — SAF replaced ALL cloud OAuth
 
 User's architectural decision (2026-09-02): **no per-provider OAuth integrations**.
 The Android system file picker (SAF) already exposes Google Drive / OneDrive / SD /
@@ -89,8 +89,7 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
   `com.aiguru.android_file_encryption`); clone at `D:\Projects\Android_File_Encryption`
 - `gh` CLI authed as bamit99 on this machine
 - Commit history before this milestone: 2 commits (Nov 2025: setup + vault UI)
-- v3.1 milestone: uncommitted working tree changes (commit pending — user asked to
-  "save the status", do commit+push as part of handoff)
+- v1.0 milestone: first public release; pre-1.0 internal versioning retired (see versioning note above)
 
 ## Contact/context
 

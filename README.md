@@ -55,9 +55,9 @@ Requirements: Android 8.0+ (SAF), BouncyCastle `bcprov-jdk18on:1.85.2` (already 
 
 See [ROADMAP.md](ROADMAP.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-- **Shipped (v4.2):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, vault lifecycle (vault-exists guard, two-tier delete: Unlink / typed-DESTROY), **zero-permission manifest**, key-material zeroization, backup-transfer excludes, location intelligence (cloud-vs-local detection + recommendations), provider-aware quick-choose, brand icon, About + license, published security audit.
+- **Shipped (v1.0):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, vault lifecycle (vault-exists guard, two-tier delete: Unlink / typed-DESTROY), **zero-permission manifest**, key-material zeroization, backup-transfer excludes, location intelligence (cloud-vs-local detection + recommendations), provider-aware quick-choose, brand icon, About + license, published security audit.
 - **Next:** signed release build (R8), on-device test suite run, offline-handling UX (network-vs-auth error distinction, escrow caching), biometric quick-unlock.
-- Security status: [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — P0 fixed (v4.1d), P1/P2 findings tracked in-repo.
+- Security status: [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — P0 fixed, P1/P2 findings tracked in-repo.
 
 ## Security disclosure
 

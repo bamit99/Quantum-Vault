@@ -1,6 +1,6 @@
 # Quantum Vault — Security Audit
 
-**Scope:** commit `ddb7806` (v4.1d), files: `HybridPQCrypto.kt`, `PassphraseKDF.kt`, `VaultEscrow.kt`, `KeyStoreManager.kt`, `EncryptionManager.kt`, `BiometricManager.kt`, `SafStorageManager.kt`, `MainActivity.kt`, manifest, backup rules, gradle. Audit date 2026-09-03. Findings verified against source, not the README.
+**Scope:** commit `ddb7806` (pre-1.0 audit), files: `HybridPQCrypto.kt`, `PassphraseKDF.kt`, `VaultEscrow.kt`, `KeyStoreManager.kt`, `EncryptionManager.kt`, `BiometricManager.kt`, `SafStorageManager.kt`, `MainActivity.kt`, manifest, backup rules, gradle. Audit date 2026-09-03. Findings verified against source, not the README.
 
 **Rating:** primitives/hybrid-KEM strong; container format sound; several hygiene findings below. No P0 open.
 
@@ -8,7 +8,7 @@
 
 ## P0 — none open
 
-**~~P0-1: passphrase leg unreachable on fresh device~~** — FIXED in v4.1d (`ddb7806`).
+**~~P0-1: passphrase leg unreachable on fresh device~~** — FIXED (`ddb7806`).
 `hybridDecryptInternal()` unsealed device keys before attempting the passphrase fallback, so "device OR passphrase" was actually "device keys required, then either." Device leg is now fully inside the try; passphrase leg standalone. *(Found by external review; verified and fixed with a regression test due.)*
 
 ---
@@ -27,7 +27,7 @@ Debug-signed APKs only, no R8, no release keystore. Not exploitable per se, but 
 **P1-4: `data_extraction_rules.xml` / `backup_rules.xml` are template stubs**
 `allowBackup=false` is set (good), but the rules files are commented-out samples — cloud-backup behavior falls through to platform defaults. On D2D migration (Android 12+), prefs could ride to the new device WITHOUT the hardware Keystore keys, producing sealed blobs the new device can't unseal. **Fix queued:** explicit `<exclude>` of the PQ prefs file in both XMLs.
 
-D2D restore of prefs without Keystore = permanently unusable sealed blob → recovery works (passphrase path now works post-v4.1d), but the user experience is a locked vault that restore fixes — acceptable, but the explicit exclusion makes behavior deterministic.
+D2D restore of prefs without Keystore = permanently unusable sealed blob → recovery works (passphrase path now works post-fix), but the user experience is a locked vault that restore fixes — acceptable, but the explicit exclusion makes behavior deterministic.
 
 ---
 
@@ -59,7 +59,7 @@ The OAuth/cloud managers were removed but manifest permissions remained. Reduce 
 - Hybrid KEM: ephemeral X25519 + ML-KEM-768, HKDF-SHA256 combine, dual-wrap v2 container
 
 ## Recommended next steps
-1. Fix P1-2 (zeroization) + P1-4 (backup rules) + P2-1/2/4 (Timber discipline, dead code, fingerprint log) → v4.1e hygiene release
+1. Fix P1-2 (zeroization) + P1-4 (backup rules) + P2-1/2/4 (Timber discipline, dead code, fingerprint log) → hygiene release
 2. P1-3 release build + signed release APK
 3. On-device test run (`RecoveryTests.kt` never executed on hardware)
 4. Independent review of the *fixed* code — the external reviewer's offer stands

@@ -1,7 +1,7 @@
 # ROADMAP — Android_File_Encryption
 
 > Living document. Newest items at top of each section. Owners: amitb + Hermes.
-> Last updated: 2026-09-02 (v3.1-pq-saf milestone).
+> Last updated: 2026-09-03 (public v1.0 — pre-1.0 internal tags/releases retired; version history restarted at v1.0).
 
 ---
 
@@ -49,18 +49,18 @@ vault (not secret, fine), passphrase never stored.
 - [ ] Format phone → reinstall → pick same Drive folder → enter passphrase → all old files decrypt
 - [ ] Wrong passphrase → clear error, no key material leaked
 - [ ] Passphrase never persisted anywhere; salt + escrow blob in vault folder
-- [ ] Migration path for existing v3.1 vaults (re-encrypt escrow on upgrade)
+- [x] ~~Migration path for existing v3.1 vaults (re-encrypt escrow on upgrade)~~ — shipped; escrow + restore-on-new-device in v1.0
 
 ---
 
 ## 🟡 P1 — Vault UX (next sprint candidates)
 
-- [ ] **v4.1 planned (amitb, 2026-09-03): Location intelligence — detect LOCAL vs cloud
+- [x] **Location intelligence (shipped in v1.0, raised by amitb 2026-09-03) — detect LOCAL vs cloud
       from SAF tree URI authority; recommend per type (local=fast/private note;
       cloud=off-device backup survives phone loss); show provider badge on Home/Vault**
-- [ ] **v4.1 planned: Provider-aware chooser — detect installed Drive/OneDrive/Dropbox
+- [x] **Provider-aware chooser (shipped in v1.0) — detect installed Drive/OneDrive/Dropbox
       apps, offer as one-tap targets (+ Local), jump SAF picker straight to provider root**
-- [ ] **v4.1 planned: Back button UX — exit-confirm dialog on main screen; other screens
+- [x] **Back button UX (shipped in v1.0) — exit-confirm dialog on main screen; other screens
       return to main without dialog**
 - [ ] **Run the 5 instrumented PQ tests on a real device/emulator** (never executed yet)
 - [ ] Delete file from vault (long-press → delete → confirm; deletes .qvault in tree)
