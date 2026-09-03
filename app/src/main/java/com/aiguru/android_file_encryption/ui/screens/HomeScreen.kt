@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 fun HomeScreen(
     hasLocation: Boolean,
     locationName: String?,
+    locationInfo: com.aiguru.android_file_encryption.storage.LocationInfo,
     onPickLocation: () -> Unit,
     onRestoreRequested: () -> Unit = {},
     onAboutRequested: () -> Unit = {},
@@ -53,6 +54,9 @@ fun HomeScreen(
                 .padding(paddingValues)
                 .padding(16.dp)
         ) {
+            // Location intelligence badge + recommendation (v4.2)
+            LocationBadgeCard(info = locationInfo)
+            Spacer(Modifier.height(8.dp))
             if (!hasLocation) {
                 // Setup state: guide the user to pick a location
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

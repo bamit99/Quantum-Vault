@@ -219,6 +219,64 @@ class SafStorageManager(private val context: Context) {
         }
         prefs.edit().clear().commit()
     }
+
+    // ─────────────────────── location intelligence (v4.2) ───────────────────────
+
+    /**
+     * Classify the remembered location from its SAF tree-URI authority —
+     * zero queries, zero permissions: the provider is IN the URI.
+     */
+    fun locationInfo(): LocationInfo {
+        val tree = locationUri() ?: return LocationInfo(LocType.NONE, "", locationName())
+        val auth = tree.authority ?: ""
+        val type = when {
+            auth == "com.android.externalstorage.documents" -> LocType.LOCAL   // internal + SD via documentId
+            auth == "com.android.providers.downloads.documents" -> LocType.LOCAL
+            auth == "com.android.providers.media.documents" -> LocType.LOCAL
+            auth.contains("google.android.apps.docs") || auth.contains("googledrive") -> LocType.GOOGLE_DRIVE
+            auth.contains("skydrive") || auth.contains("microsoft.onedrive") || auth.contains("com.microsoft.sharepoint") -> LocType.ONEDRIVE
+            auth.contains("dropbox") -> LocType.DROPBOX
+            else -> LocType.OTHER_CLOUD
+        }
+        return LocationInfo(type, auth, locationName())
+    }
+}
+
+enum class LocType { NONE, LOCAL, GOOGLE_DRIVE, ONEDRIVE, DROPBOX, OTHER_CLOUD }
+
+data class LocationInfo(
+    val type: LocType,
+    val authority: String,
+    val displayName: String?
+) {
+    /** Short label for UI badges. */
+    fun label(): String = when (type) {
+        LocType.NONE -> "No location"
+        LocType.LOCAL -> "This device"
+        LocType.GOOGLE_DRIVE -> "Google Drive"
+        LocType.ONEDRIVE -> "OneDrive"
+        LocType.DROPBOX -> "Dropbox"
+        LocType.OTHER_CLOUD -> authority.substringBefore('.').replaceFirstChar { it.uppercase() }
+    }
+
+    /** User-facing recommendation for this storage class. */
+    fun recommendation(): String = when (type) {
+        LocType.NONE -> "Pick a folder to create or restore your vault."
+        LocType.LOCAL ->
+            "✓ Fastest + fully offline. Files never leave this device.\n" +
+            "⚠ No off-device backup — a lost/broken phone with a lost passphrase means loss. Consider a cloud location for the .vaultkey."
+        LocType.GOOGLE_DRIVE ->
+            "✓ Survives phone loss/formats — files + .vaultkey sync to Drive.\n" +
+            "ℹ Slower for big files, needs network; provider sees file names/sizes (never contents)."
+        LocType.ONEDRIVE ->
+            "✓ Survives phone loss — files + .vaultkey sync to OneDrive.\n" +
+            "ℹ Slower for big files, needs network; provider sees file names/sizes (never contents)."
+        LocType.DROPBOX ->
+            "✓ Survives phone loss — files + .vaultkey sync to Dropbox.\n" +
+            "ℹ Slower for big files, needs network; provider sees file names/sizes (never contents)."
+        LocType.OTHER_CLOUD ->
+            "ℹ Third-party provider — verify it keeps files offline-available and doesn't purge 'unknown' files."
+    }
 }
 
 data class SafFileInfo(

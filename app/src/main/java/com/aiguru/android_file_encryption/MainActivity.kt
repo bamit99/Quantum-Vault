@@ -26,6 +26,9 @@ import com.aiguru.android_file_encryption.security.VaultEscrow
 import com.aiguru.android_file_encryption.ui.screens.AboutScreen
 import com.aiguru.android_file_encryption.ui.screens.DeleteVaultScreen
 import com.aiguru.android_file_encryption.ui.screens.HomeScreen
+import com.aiguru.android_file_encryption.ui.screens.ProviderChooserSheet
+import com.aiguru.android_file_encryption.ui.screens.detectProviders
+import com.aiguru.android_file_encryption.ui.screens.providerPickerIntent
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultRestoreScreen
@@ -84,6 +87,10 @@ class MainActivity : ComponentActivity() {
                             pendingFolderCallback = onDone
                             folderPickerLauncher.launch(safStorage.openFolderPickerIntent())
                         },
+                        launchFolderPickerWithIntent = { intent, onDone ->
+                            pendingFolderCallback = onDone
+                            folderPickerLauncher.launch(intent)
+                        },
                         launchFilePicker = { onDone ->
                             pendingFileCallback = onDone
                             openFileLauncher.launch(arrayOf("*/*"))
@@ -104,16 +111,56 @@ fun AppNavigation(
     saf: SafStorageManager,
     pq: com.aiguru.android_file_encryption.security.HybridPQCrypto,
     launchFolderPicker: ((String?) -> Unit) -> Unit,
+    launchFolderPickerWithIntent: ((android.content.Intent, (String?) -> Unit) -> Unit)? = null,
     launchFilePicker: ((android.net.Uri?) -> Unit) -> Unit,
     onShowToast: (String) -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf("home") }
     val context = androidx.compose.ui.platform.LocalContext.current
+    // main-thread dispatcher usable from worker threads anywhere in this scope
+    val onMain: (Runnable) -> Unit = { r ->
+        if (context is android.app.Activity) context.runOnUiThread(r)
+        else { val h = android.os.Handler(android.os.Looper.getMainLooper()); h.post(r) }
+    }
     var showExitDialog by remember { mutableStateOf(false) }
     // session unlock state: vault stays locked until passphrase verified (once per app open)
     var unlocked by rememberSaveable { mutableStateOf(false) }
     var unlockBusy by remember { mutableStateOf(false) }
     var unlockError by remember { mutableStateOf<String?>(null) }
+    // provider quick-choose before the system folder picker (v4.2)
+    var showProviderChooser by remember { mutableStateOf(false) }
+
+    if (showProviderChooser) {
+        ProviderChooserSheet(
+            options = remember { detectProviders(context) },
+            onPick = { opt ->
+                showProviderChooser = false
+                // SAF picker, optionally pre-seeded at the provider root (best-effort hint)
+                val intent = providerPickerIntent(opt)
+                val callback: (String?) -> Unit = { picked ->
+                    if (picked != null) {
+                        // Vault-exists guard (same as plain flow)
+                        Thread {
+                            val existing = try { saf.findChild(VaultEscrow.FILE_NAME) } catch (e: Exception) { null }
+                            onMain {
+                                if (existing != null) {
+                                    onShowToast("This folder already contains a Quantum Vault (.vaultkey). Use 'Restore vault on this device' to adopt it, or pick a different folder.")
+                                } else {
+                                    currentScreen = "passphrase_setup"
+                                }
+                            }
+                        }.start()
+                    }
+                }
+                if (opt.packageName != null && launchFolderPickerWithIntent != null) {
+                    launchFolderPickerWithIntent(intent, callback)
+                } else {
+                    launchFolderPicker(callback)
+                }
+            },
+            onDismiss = { showProviderChooser = false }
+        )
+    }
 
     // Back UX: main screen asks before exit; every other screen returns to main.
     androidx.activity.compose.BackHandler(enabled = currentScreen != "home") {
@@ -140,34 +187,14 @@ fun AppNavigation(
         )
     }
 
-    // main-thread dispatcher usable from worker threads inside this composable scope
-    val onMain: (Runnable) -> Unit = { r ->
-        if (context is android.app.Activity) context.runOnUiThread(r)
-        else { val h = android.os.Handler(android.os.Looper.getMainLooper()); h.post(r) }
-    }
-
     when (currentScreen) {
         "home" -> HomeScreen(
             hasLocation = saf.hasLocation(),
             locationName = saf.locationName(),
+            locationInfo = saf.locationInfo(),
             onPickLocation = {
-                launchFolderPicker { picked ->
-                    if (picked != null) {
-                        // Vault-exists guard: does this folder already contain a vault?
-                        Thread {
-                            val existing = try { saf.findChild(VaultEscrow.FILE_NAME) } catch (e: Exception) { null }
-                            onMain {
-                                if (existing != null) {
-                                    onShowToast("This folder already contains a Quantum Vault (.vaultkey). Use 'Restore vault on this device' to adopt it, or pick a different folder.")
-                                    // Do NOT proceed to passphrase setup — vault untouched
-                                } else {
-                                    // Fresh location: set a passphrase now, write escrow, then enter vault
-                                    currentScreen = "passphrase_setup"
-                                }
-                            }
-                        }.start()
-                    }
-                }
+                // v4.2: quick-choose sheet (installed providers + local + browse-all)
+                showProviderChooser = true
             },
             onDeleteVaultRequested = {
                 currentScreen = "delete_vault"
