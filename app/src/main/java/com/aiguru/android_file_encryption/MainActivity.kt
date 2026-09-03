@@ -19,6 +19,7 @@ import androidx.compose.ui.Modifier
 
 import com.aiguru.android_file_encryption.storage.SafStorageManager
 import com.aiguru.android_file_encryption.security.VaultEscrow
+import com.aiguru.android_file_encryption.ui.screens.AboutScreen
 import com.aiguru.android_file_encryption.ui.screens.HomeScreen
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
@@ -124,10 +125,14 @@ fun AppNavigation(
             onRestoreRequested = {
                 currentScreen = "restore"
             },
+            onAboutRequested = {
+                currentScreen = "about"
+            },
             onVaultSelected = {
                 if (saf.hasLocation()) currentScreen = "vault" else onShowToast("Pick a vault location first")
             }
         )
+        "about" -> AboutScreen(onBack = { currentScreen = "home" })
         "passphrase_setup" -> PassphraseSetupScreen(
             title = "Create vault passphrase",
             confirmLabel = "Create vault",

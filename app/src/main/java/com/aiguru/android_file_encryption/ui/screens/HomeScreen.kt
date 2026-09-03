@@ -26,11 +26,19 @@ fun HomeScreen(
     locationName: String?,
     onPickLocation: () -> Unit,
     onRestoreRequested: () -> Unit = {},
+    onAboutRequested: () -> Unit = {},
     onVaultSelected: () -> Unit
 ) {
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text("Aiguru Secure Vault") })
+            TopAppBar(
+                title = { Text("Quantum Vault") },
+                actions = {
+                    TextButton(onClick = onAboutRequested) {
+                        Text("About", style = MaterialTheme.typography.labelLarge)
+                    }
+                }
+            )
         },
         floatingActionButton = {
             FloatingActionButton(onClick = onPickLocation) {

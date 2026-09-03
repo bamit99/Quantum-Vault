@@ -55,6 +55,13 @@ vault (not secret, fine), passphrase never stored.
 
 ## 🟡 P1 — Vault UX (next sprint candidates)
 
+- [ ] **v4.1 planned (amitb, 2026-09-03): Location intelligence — detect LOCAL vs cloud
+      from SAF tree URI authority; recommend per type (local=fast/private note;
+      cloud=off-device backup survives phone loss); show provider badge on Home/Vault**
+- [ ] **v4.1 planned: Provider-aware chooser — detect installed Drive/OneDrive/Dropbox
+      apps, offer as one-tap targets (+ Local), jump SAF picker straight to provider root**
+- [ ] **v4.1 planned: Back button UX — exit-confirm dialog on main screen; other screens
+      return to main without dialog**
 - [ ] **Run the 5 instrumented PQ tests on a real device/emulator** (never executed yet)
 - [ ] Delete file from vault (long-press → delete → confirm; deletes .qvault in tree)
 - [ ] Folder support inside vault view (currently flat file list)
