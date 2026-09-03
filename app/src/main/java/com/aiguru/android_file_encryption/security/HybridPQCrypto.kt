@@ -268,28 +268,30 @@ class HybridPQCrypto(private val context: Context) {
         val wrappedDevice = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
         val payload = blob.copyOfRange(off, blob.size)
 
-        // Unseal private halves (may fail on a fresh device without escrow — but the
-        // passphrase leg can still work IF we have restored keys; so require them)
-        val (xPriv, kemPrivParams) = unsealVaultPrivateKey()
-
-        // Classical leg
-        val xPrivKey = X25519PrivateKeyParameters(xPriv, 0)
-        val ephPubKey = X25519PublicKeyParameters(ephPub, 0)
-        val sharedClassical = ByteArray(X25519.SCALAR_SIZE)
-        xPrivKey.generateSecret(ephPubKey, sharedClassical, 0)
-
-        // PQ leg
-        val sharedPQ = MLKEMExtractor(kemPrivParams).extractSecret(encapsulation)
-
-        // Device KEK → unwrap FileKey
-        val kek = hkdf(sharedClassical.plus(sharedPQ), salt)
+        // ── Leg 1: device keys (fast path; may be absent on a fresh device) ──
         val fileKey: ByteArray = try {
+            val (xPriv, kemPrivParams) = unsealVaultPrivateKey()
+            val xPrivKey = X25519PrivateKeyParameters(xPriv, 0)
+            val ephPubKey = X25519PublicKeyParameters(ephPub, 0)
+            val sharedClassical = ByteArray(X25519.SCALAR_SIZE)
+            xPrivKey.generateSecret(ephPubKey, sharedClassical, 0)
+
+            // PQ leg
+            val sharedPQ = MLKEMExtractor(kemPrivParams).extractSecret(encapsulation)
+
+            // Device KEK → unwrap FileKey
+            val kek = hkdf(sharedClassical.plus(sharedPQ), salt)
             aesGcm(encrypt = false, key = kek, data = wrappedDevice)
         } catch (e: Exception) {
-            // Device-wrap failed → if v2 and passphrase available, try passphrase wrap
+            // ── Leg 2: passphrase — fully independent of device private keys.
+            // Works on a fresh device (post-format, pre-restore) for v2 blobs.
             if (version == FORMAT_V2 && wrappedPass != null && argonSalt != null && passphrase != null) {
-                val passKek = PassphraseKDF.derive(passphrase, argonSalt)
-                aesGcm(encrypt = false, key = passKek, data = wrappedPass)
+                try {
+                    val passKek = PassphraseKDF.derive(passphrase, argonSalt)
+                    aesGcm(encrypt = false, key = passKek, data = wrappedPass)
+                } catch (pEx: Exception) {
+                    throw SecurityException("File key unwrap failed (device keys unavailable and passphrase incorrect)", pEx)
+                }
             } else {
                 throw SecurityException("File key unwrap failed (device key + passphrase both unavailable/incorrect)", e)
             }
