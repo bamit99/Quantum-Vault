@@ -286,19 +286,24 @@ class HybridPQCrypto(private val context: Context) {
         val encapsulation = blob.copyOfRange(off, off + MLKEM768_ENCAP_LEN); off += MLKEM768_ENCAP_LEN
         val salt = blob.copyOfRange(off, off + SALT_LEN); off += SALT_LEN
 
-        // v2 adds argonSalt + passphrase-wrapped FileKey before the payload
+        // v2 adds argonSalt + a second (passphrase) wrap of the FileKey before the payload.
+        // Wire order — MUST match hybridEncryptInternal's write order:
+        //   v1: salt | wrappedDevice | payload
+        //   v2: salt | argonSalt | wrappedDevice | wrappedPass | payload
         val argonSalt: ByteArray?
+        val wrappedDevice: ByteArray?
         val wrappedPass: ByteArray?
         if (version == FORMAT_V2) {
             argonSalt = blob.copyOfRange(off, off + PassphraseKDF.SALT_LEN); off += PassphraseKDF.SALT_LEN
+            wrappedDevice = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
             wrappedPass = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
         } else {
             argonSalt = null
+            wrappedDevice = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
             wrappedPass = null
         }
         require(version == FORMAT_VERSION || version == FORMAT_V2) { "Unsupported QVAULT version $version" }
 
-        val wrappedDevice = blob.copyOfRange(off, off + (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)); off += (IV_LEN + FILE_KEY_LEN + GCM_TAG_BITS / 8)
         val payload = blob.copyOfRange(off, blob.size)
 
         // ── Leg 1: device keys (fast path; may be absent on a fresh device) ──
