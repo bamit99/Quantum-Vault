@@ -20,8 +20,11 @@
 - Naming convention for future release assets: `QuantumVault-vX.Y.apk`
 
 **Public v1.0 milestone (2026-09-03, all verified):**
-- Version reset: pre-1.0 tags (v3.1-pq-saf, v4.0-pq-recovery, v4.1c-g, v4.2) + releases
-  deleted from GitHub + local; only tag/release = v1.0 (Latest)
+- Latest asset: `QuantumVault-v1.0.2.apk` (v1.0.1 = v2 parse-order fix; v1.0.2 adds
+  provider-chooser fix: <queries> manifest declaration for Drive/OneDrive/Dropbox
+  package visibility on Android 11+, Drive EXTRA_INITIAL_URI corrected to
+  com.google.android.apps.docs.storage). Verified on Pixel_10_Pro AVD end-to-end:
+  chooser lists installed Drive → SAF picker roots at Drive CLOUD → tree grant persists.
 - Docs renumbered: README 'Shipped (v1.0)' + cinematic option-B intro + platform note
   ('Android today — iOS follows in a few weeks', commit b3340e7); SECURITY_AUDIT
   de-versioned ('pre-1.0 audit'); ROADMAP shipped items checked
