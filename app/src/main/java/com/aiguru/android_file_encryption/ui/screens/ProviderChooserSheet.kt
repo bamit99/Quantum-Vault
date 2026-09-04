@@ -81,8 +81,16 @@ fun ProviderChooserSheet(
     )
 }
 
-/** Intent that opens the SAF picker pre-seeded at a provider root (best-effort). */
-fun providerPickerIntent(option: ProviderOption): Intent {
+/**
+ * Intent that opens the SAF picker pre-seeded at a provider root (best-effort).
+ *
+ * Routed BY COMPONENT at the system DocumentsUI picker so third-party file
+ * explorers (Solid Explorer etc.) can't hijack ACTION_OPEN_DOCUMENT_TREE and
+ * show their own browser, which ignores EXTRA_INITIAL_URI and may not expose
+ * all cloud providers. Falls back to the implicit intent when the system
+ * picker package isn't present (custom ROMs without DocumentsUI).
+ */
+fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
     val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
         addFlags(
             Intent.FLAG_GRANT_READ_URI_PERMISSION or
@@ -105,6 +113,16 @@ fun providerPickerIntent(option: ProviderOption): Intent {
     }
     if (hint != null) {
         try { base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(hint)) } catch (e: Exception) { /* hint only */ }
+    }
+    // Pin to the SYSTEM documents UI so OEM/file-manager replacements don't
+    // swallow the intent and lose the provider jump. Needs package visibility
+    // for the picker package — declared in the manifest <queries> block.
+    if (ctx != null) {
+        val sysPicker = try {
+            ctx.packageManager.getPackageInfo("com.google.android.documentsui", 0)
+            true
+        } catch (e: Exception) { false }
+        if (sysPicker) base.setClassName("com.google.android.documentsui", "com.android.documentsui.picker.PickActivity")
     }
     return base
 }

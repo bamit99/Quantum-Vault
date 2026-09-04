@@ -136,7 +136,7 @@ fun AppNavigation(
             onPick = { opt ->
                 showProviderChooser = false
                 // SAF picker, optionally pre-seeded at the provider root (best-effort hint)
-                val intent = providerPickerIntent(opt)
+                val intent = providerPickerIntent(opt, context)
                 val callback: (String?) -> Unit = { picked ->
                     if (picked != null) {
                         // Vault-exists guard (same as plain flow)

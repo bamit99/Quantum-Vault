@@ -18,6 +18,9 @@
         <package android:name="com.google.android.apps.docs" />
         <package android:name="com.microsoft.skydrive" />
         <package android:name="com.dropbox.android" />
+        <!-- system SAF picker: targeted by component so third-party file
+             explorers can't hijack ACTION_OPEN_DOCUMENT_TREE -->
+        <package android:name="com.google.android.documentsui" />
     </queries>
 
     <application
