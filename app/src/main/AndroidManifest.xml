@@ -9,6 +9,17 @@
       ride inside the provider apps (Drive/OneDrive) over their own TLS.
     -->
 
+    <!--
+      Package visibility (Android 11+): lets PackageManager see installed cloud
+      provider apps so the v4.2 provider chooser can offer them. Manifest
+      declaration only — adds NO permissions, keeps zero-permission posture.
+    -->
+    <queries>
+        <package android:name="com.google.android.apps.docs" />
+        <package android:name="com.microsoft.skydrive" />
+        <package android:name="com.dropbox.android" />
+    </queries>
+
     <application
         android:name=".QuantumVaultApp"
         android:allowBackup="false"

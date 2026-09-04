@@ -92,11 +92,15 @@ fun providerPickerIntent(option: ProviderOption): Intent {
         )
     }
     val pkg = option.packageName ?: return base
-    // Best-effort initial-URI hints; provider may ignore them
+    // Best-effort initial-URI hints; provider may ignore them.
+    // NOTE: these point at the provider's SAF DocumentsProvider authority —
+    // NOT the vendor app's own package-internal provider. Drive's storage
+    // authority is com.google.android.apps.docs.storage (NOT externalstorage,
+    // which is local flash and was the old wrong hint).
     val hint = when {
-        pkg.contains("docs") || pkg.contains("drive") -> "content://com.android.externalstorage.documents/document/primary:"
-        pkg.contains("skydrive") -> "content://com.microsoft.skydrive.content.storage_access_provider/document/root"
-        pkg.contains("dropbox") -> "content://com.dropbox.android.provider/document/root"
+        pkg == "com.google.android.apps.docs" -> "content://com.google.android.apps.docs.storage/document/root"
+        pkg == "com.microsoft.skydrive" -> "content://com.microsoft.skydrive.content.storage_access_provider/document/root"
+        pkg == "com.dropbox.android" -> "content://com.dropbox.android.provider/document/root"
         else -> null
     }
     if (hint != null) {
