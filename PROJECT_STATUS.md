@@ -89,7 +89,11 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
 
 ## Known gaps / candidate TODOs (user has "suggestions for tomorrow" — ask first)
 
-- [ ] Instrumented PQ tests never run on a device/emulator
+- [x] ~~Instrumented PQ tests never run on a device/emulator~~ — DONE 2026-09-03:
+      Pixel_10_Pro AVD, 13/13 pass (HybridPQCryptoTest + RecoveryTests). Found and
+      fixed a real P0: QVAULT v2 decrypt parse order was swapped vs encrypt wire
+      order (wrappedPass/wrappedDevice) → every v2 blob undecryptable on Android.
+      Fix commit 6bc42dc; fixed build shipped as QuantumVault-v1.0.1.apk on release v1.0.
 - [ ] No delete / rename / folder creation in vault browser
 - [ ] `ShareDecrypted` writes plaintext to cacheDir (cleaned by OS, but consider
       in-memory view or explicit wipe after open)
