@@ -148,12 +148,19 @@ fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
         val best = when {
             candidates.isEmpty() -> null
             candidates.size == 1 -> candidates[0]
-            else -> candidates.firstOrNull {
-                it.activityInfo.packageName.contains("documentsui") ||
-                it.activityInfo.packageName.contains("documents") ||
-                it.activityInfo.packageName.contains("filemanager") ||
-                it.activityInfo.packageName.contains("files")
-            } ?: candidates.firstOrNull { it.isDefault } ?: candidates.first()
+            else ->
+                // OnePlus 12R reality: BOTH com.google.android.documentsui AND
+                // com.oneplus.filemanager are system handlers for this intent.
+                // Order of the resolver list is not guaranteed → scan by
+                // PRIORITY PASSES, not a per-item OR chain (which let a
+                // list-earlier "filemanager" beat a later "documentsui").
+                // True SAF pickers (documentsui family) honor the destination
+                // hint and expose all cloud roots; OEM file managers that
+                // merely register the intent are exactly the hijackers.
+                candidates.firstOrNull { it.activityInfo.packageName.contains("documentsui") }
+                    ?: candidates.firstOrNull { it.activityInfo.packageName.contains("documents") }
+                    ?: candidates.firstOrNull { it.isDefault }
+                    ?: candidates.first()
         }
         if (best != null) {
             base.setClassName(best.activityInfo.packageName, best.activityInfo.name)
