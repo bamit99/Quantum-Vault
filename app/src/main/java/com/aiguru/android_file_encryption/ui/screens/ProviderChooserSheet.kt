@@ -44,13 +44,24 @@ fun detectProviders(ctx: Context): List<ProviderOption> {
 fun ProviderChooserSheet(
     options: List<ProviderOption>,
     onPick: (ProviderOption) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    systemPickerAvailable: Boolean = true
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text("Where should your vault live?") },
         text = {
             LazyColumn {
+                if (!systemPickerAvailable) {
+                    item {
+                        Text(
+                            "Note: this device has no system file picker — your default file explorer will open instead. Make sure it integrates the cloud drive you pick, or it won't appear.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(bottom = 8.dp)
+                        )
+                    }
+                }
                 items(options) { opt ->
                     Card(
                         onClick = { onPick(opt) },
@@ -84,11 +95,17 @@ fun ProviderChooserSheet(
 /**
  * Intent that opens the SAF picker pre-seeded at a provider root (best-effort).
  *
- * Routed BY COMPONENT at the system DocumentsUI picker so third-party file
- * explorers (Solid Explorer etc.) can't hijack ACTION_OPEN_DOCUMENT_TREE and
- * show their own browser, which ignores EXTRA_INITIAL_URI and may not expose
- * all cloud providers. Falls back to the implicit intent when the system
- * picker package isn't present (custom ROMs without DocumentsUI).
+ * Anti-hijack: third-party file explorers (Solid Explorer, OEM My Files, …)
+ * register as handlers for ACTION_OPEN_DOCUMENT_TREE, show their own browser,
+ * ignore EXTRA_INITIAL_URI, and may not expose all cloud roots (Solid Explorer
+ * integrates Drive but not OneDrive). We therefore resolve the device's SYSTEM
+ * picker dynamically (queryIntentActivities + FLAG_SYSTEM) and pin the intent
+ * to it BY COMPONENT — OEM-agnostic, works on Pixel/OnePlus/Samsung/Xiaomi
+ * without hardcoding package names. When no system handler resolves
+ * (or resolution fails) we fall back to the implicit intent; the caller can
+ * detect that case via [systemPickerAvailable] and show guidance.
+ *
+ * Returns null never — worst case is the implicit intent unchanged.
  */
 fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
     val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -114,15 +131,52 @@ fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
     if (hint != null) {
         try { base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(hint)) } catch (e: Exception) { /* hint only */ }
     }
-    // Pin to the SYSTEM documents UI so OEM/file-manager replacements don't
-    // swallow the intent and lose the provider jump. Needs package visibility
-    // for the picker package — declared in the manifest <queries> block.
-    if (ctx != null) {
-        val sysPicker = try {
-            ctx.packageManager.getPackageInfo("com.google.android.documentsui", 0)
-            true
-        } catch (e: Exception) { false }
-        if (sysPicker) base.setClassName("com.google.android.documentsui", "com.android.documentsui.picker.PickActivity")
+    if (ctx == null) return base
+
+    // Resolve the SYSTEM handler for this intent dynamically (no hardcoded
+    // package names — every OEM ships its own DocumentsUI fork under a
+    // different package). Query with MATCH_SYSTEM_ONLY so Play-installed
+    // file managers (Solid Explorer etc.) never enter the candidate list.
+    // Package visibility: these system packages are visible without <queries>
+    // (system apps with intent filters are always visible for resolution).
+    try {
+        val resolved = ctx.packageManager.queryIntentActivities(base, PackageManager.MATCH_SYSTEM_ONLY)
+        val candidates = resolved.filter {
+            val flags = it.activityInfo.applicationInfo.flags
+            (flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        }
+        val best = when {
+            candidates.isEmpty() -> null
+            candidates.size == 1 -> candidates[0]
+            else -> candidates.firstOrNull {
+                it.activityInfo.packageName.contains("documentsui") ||
+                it.activityInfo.packageName.contains("documents") ||
+                it.activityInfo.packageName.contains("filemanager") ||
+                it.activityInfo.packageName.contains("files")
+            } ?: candidates.firstOrNull { it.isDefault } ?: candidates.first()
+        }
+        if (best != null) {
+            base.setClassName(best.activityInfo.packageName, best.activityInfo.name)
+        }
+    } catch (e: Exception) {
+        // resolution unavailable → implicit intent; guidance path covers this
     }
     return base
 }
+
+/**
+ * True when the ONLY resolvable handler for ACTION_OPEN_DOCUMENT_TREE is a
+ * non-system app (user's file manager is default and no system picker
+ * exists) — caller should surface guidance that cloud roots may be missing
+ * in that browser.
+ */
+fun systemPickerAvailable(ctx: Context): Boolean = try {
+    val pm = ctx.packageManager
+    val resolved = pm.queryIntentActivities(
+        Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        ),
+        PackageManager.MATCH_SYSTEM_ONLY
+    )
+    resolved.isNotEmpty()
+} catch (e: Exception) { true }

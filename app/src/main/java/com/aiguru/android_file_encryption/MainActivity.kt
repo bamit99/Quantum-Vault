@@ -29,6 +29,7 @@ import com.aiguru.android_file_encryption.ui.screens.HomeScreen
 import com.aiguru.android_file_encryption.ui.screens.ProviderChooserSheet
 import com.aiguru.android_file_encryption.ui.screens.detectProviders
 import com.aiguru.android_file_encryption.ui.screens.providerPickerIntent
+import com.aiguru.android_file_encryption.ui.screens.systemPickerAvailable
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultRestoreScreen
@@ -158,7 +159,8 @@ fun AppNavigation(
                     launchFolderPicker(callback)
                 }
             },
-            onDismiss = { showProviderChooser = false }
+            onDismiss = { showProviderChooser = false },
+            systemPickerAvailable = remember { systemPickerAvailable(context) }
         )
     }
 
