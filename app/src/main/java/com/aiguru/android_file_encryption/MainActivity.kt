@@ -29,6 +29,7 @@ import com.aiguru.android_file_encryption.ui.screens.HomeScreen
 import com.aiguru.android_file_encryption.ui.screens.ProviderChooserSheet
 import com.aiguru.android_file_encryption.ui.screens.detectProviders
 import com.aiguru.android_file_encryption.ui.screens.providerPickerIntent
+import com.aiguru.android_file_encryption.ui.screens.browseAllIntent
 import com.aiguru.android_file_encryption.ui.screens.systemPickerAvailable
 import com.aiguru.android_file_encryption.ui.screens.PassphraseSetupScreen
 import com.aiguru.android_file_encryption.ui.screens.VaultBrowserScreen
@@ -153,11 +154,12 @@ fun AppNavigation(
                         }.start()
                     }
                 }
-                // "Browse all" → the user's DEFAULT handler (like Gmail's picker):
-                // unpinned implicit intent, Android's own resolution, no chooser
-                // wrapper. If the user sets Solid Explorer 'Always' for folder
-                // picking, this opens Solid — their choice, their default.
-                launchFolderPicker(callback)
+                // "Browse all" → EXPLICITLY the system SAF DocumentsUI (amitb brief
+                // 2026-09-04): same dynamic resolution as Main — never the user
+                // default, never a chooser, never an OEM/file-manager hijack
+                val browseIntent = browseAllIntent(context)
+                launchFolderPickerWithIntent?.let { it(browseIntent, callback) }
+                    ?: launchFolderPicker(callback)
             },
             onDismiss = { showProviderChooser = false },
             systemPickerAvailable = remember { systemPickerAvailable(context) }

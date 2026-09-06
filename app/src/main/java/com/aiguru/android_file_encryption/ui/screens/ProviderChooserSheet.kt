@@ -89,19 +89,74 @@ fun ProviderChooserSheet(
 }
 
 /**
+ * Intent for "Browse all" — explicitly the SYSTEM SAF DocumentsUI, same
+ * dynamic resolution + priority passes as the Main card (amitb brief
+ * 2026-09-04): never the user default, never a chooser, no OEM/file-manager
+ * hijack. All SAF flags preserved. Falls back to the implicit intent ONLY
+ * when no system handler resolves (then [systemPickerAvailable]-based
+ * guidance applies). No provider jump (no single target root).
+ */
+fun browseAllIntent(ctx: Context? = null): Intent {
+    val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+        addFlags(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+            Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION or
+            Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
+        )
+    }
+    if (ctx == null) return base
+    resolveSystemPicker(ctx, base)
+    return base
+}
+
+/**
+ * Dynamically resolve the device's SYSTEM DocumentsUI handler and pin
+ * [base] to it by component. Shared by Main and Browse-all paths.
+ */
+private fun resolveSystemPicker(ctx: Context, base: Intent) {
+    try {
+        val resolved = ctx.packageManager.queryIntentActivities(base, PackageManager.MATCH_SYSTEM_ONLY)
+        val candidates = resolved.filter {
+            val flags = it.activityInfo.applicationInfo.flags
+            (flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+        }
+        val best = when {
+            candidates.isEmpty() -> null
+            candidates.size == 1 -> candidates[0]
+            else ->
+                // OnePlus 12R reality: BOTH com.google.android.documentsui AND
+                // com.oneplus.filemanager are system handlers for this intent.
+                // Order of the resolver list is not guaranteed → scan by
+                // PRIORITY PASSES, not a per-item OR chain (which let a
+                // list-earlier "filemanager" beat a later "documentsui").
+                // True SAF pickers (documentsui family) honor the destination
+                // hint and expose all cloud roots; OEM file managers that
+                // merely register the intent are exactly the hijackers.
+                candidates.firstOrNull { it.activityInfo.packageName.contains("documentsui") }
+                    ?: candidates.firstOrNull { it.activityInfo.packageName.contains("documents") }
+                    ?: candidates.firstOrNull { it.isDefault }
+                    ?: candidates.first()
+        }
+        if (best != null) {
+            base.setClassName(best.activityInfo.packageName, best.activityInfo.name)
+        }
+    } catch (e: Exception) {
+        // resolution unavailable → implicit intent; guidance path covers this
+    }
+}
+
+/**
  * Intent that opens the SAF picker pre-seeded at a provider root (best-effort).
  *
  * Anti-hijack: third-party file explorers (Solid Explorer, OEM My Files, …)
  * register as handlers for ACTION_OPEN_DOCUMENT_TREE, show their own browser,
- * ignore EXTRA_INITIAL_URI, and may not expose all cloud roots (Solid Explorer
- * integrates Drive but not OneDrive). We therefore resolve the device's SYSTEM
- * picker dynamically (queryIntentActivities + FLAG_SYSTEM) and pin the intent
- * to it BY COMPONENT — OEM-agnostic, works on Pixel/OnePlus/Samsung/Xiaomi
- * without hardcoding package names. When no system handler resolves
- * (or resolution fails) we fall back to the implicit intent; the caller can
- * detect that case via [systemPickerAvailable] and show guidance.
- *
- * Returns null never — worst case is the implicit intent unchanged.
+ * ignore EXTRA_INITIAL_URI, and may not expose all cloud roots. The device's
+ * SYSTEM picker is resolved dynamically (queryIntentActivities +
+ * MATCH_SYSTEM_ONLY) and pinned BY COMPONENT — OEM-agnostic, works on
+ * Pixel/OnePlus/Samsung/Xiaomi without hardcoding package names. When no
+ * system handler resolves (or resolution fails) we fall back to the implicit
+ * intent; the caller can detect that case via [systemPickerAvailable].
  */
 fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
     val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -133,42 +188,7 @@ fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
         try { base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(hint)) } catch (e: Exception) { /* hint only */ }
     }
     if (ctx == null) return base
-
-    // Resolve the SYSTEM handler for this intent dynamically (no hardcoded
-    // package names — every OEM ships its own DocumentsUI fork under a
-    // different package). Query with MATCH_SYSTEM_ONLY so Play-installed
-    // file managers (Solid Explorer etc.) never enter the candidate list.
-    // Package visibility: these system packages are visible without <queries>
-    // (system apps with intent filters are always visible for resolution).
-    try {
-        val resolved = ctx.packageManager.queryIntentActivities(base, PackageManager.MATCH_SYSTEM_ONLY)
-        val candidates = resolved.filter {
-            val flags = it.activityInfo.applicationInfo.flags
-            (flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-        }
-        val best = when {
-            candidates.isEmpty() -> null
-            candidates.size == 1 -> candidates[0]
-            else ->
-                // OnePlus 12R reality: BOTH com.google.android.documentsui AND
-                // com.oneplus.filemanager are system handlers for this intent.
-                // Order of the resolver list is not guaranteed → scan by
-                // PRIORITY PASSES, not a per-item OR chain (which let a
-                // list-earlier "filemanager" beat a later "documentsui").
-                // True SAF pickers (documentsui family) honor the destination
-                // hint and expose all cloud roots; OEM file managers that
-                // merely register the intent are exactly the hijackers.
-                candidates.firstOrNull { it.activityInfo.packageName.contains("documentsui") }
-                    ?: candidates.firstOrNull { it.activityInfo.packageName.contains("documents") }
-                    ?: candidates.firstOrNull { it.isDefault }
-                    ?: candidates.first()
-        }
-        if (best != null) {
-            base.setClassName(best.activityInfo.packageName, best.activityInfo.name)
-        }
-    } catch (e: Exception) {
-        // resolution unavailable → implicit intent; guidance path covers this
-    }
+    resolveSystemPicker(ctx, base)
     return base
 }
 
