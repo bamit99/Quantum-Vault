@@ -12,28 +12,24 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
 /**
- * Provider-aware vault location chooser (v4.2).
- * Lists cloud apps actually installed on this device + local storage +
- * "Browse all…" fallback. No dead options for uninstalled providers.
+ * Vault location chooser (simplified per amitb, 2026-09-04).
+ * Two options only:
+ *   - Main   → pinned system SAF picker (dynamic OEM-agnostic component pin,
+ *              destination jump via EXTRA_INITIAL_URI, honors user default
+ *              only when it IS the system picker)
+ *   - Browse all → the USER'S DEFAULT handler, whatever they set ("Files"
+ *              is the system SAF default; their file explorer can be set
+ *              as default like Gmail's picker). Never pinned, never forced
+ *              into a chooser — resolution is Android's own, driven by the
+ *              user's explicit 'Always' choices.
  */
 data class ProviderOption(val glyph: String, val title: String, val subtitle: String, val packageName: String?)
 
-/** Detect installed cloud provider apps (PackageManager, no permissions needed for these queries). */
-fun detectProviders(ctx: Context): List<ProviderOption> {
-    val pm = ctx.packageManager
-    fun installed(pkg: String) = try { pm.getPackageInfo(pkg, 0); true } catch (e: Exception) { false }
-
-    val opts = mutableListOf<ProviderOption>()
-    if (installed("com.google.android.apps.docs"))
-        opts.add(ProviderOption("🟡", "Google Drive", "Files survive phone loss; syncs automatically", "com.google.android.apps.docs"))
-    if (installed("com.microsoft.skydrive") || installed("com.microsoft.office.onenote"))
-        opts.add(ProviderOption("🔵", "OneDrive", "Files survive phone loss; syncs automatically", "com.microsoft.skydrive"))
-    if (installed("com.dropbox.android"))
-        opts.add(ProviderOption("📦", "Dropbox", "Files survive phone loss; syncs automatically", "com.dropbox.android"))
-    opts.add(ProviderOption("📱", "This device", "Fastest + fully offline; no off-device backup", null))
-    opts.add(ProviderOption("🗂", "Browse all…", "Any folder via the system picker", null))
-    return opts
-}
+/** Two fixed options: Main (system picker) + Browse all (user default). */
+fun detectProviders(ctx: Context): List<ProviderOption> = listOf(
+    ProviderOption("🔐", "Main vault location", "System picker — jumps into Drive/Dropbox when installed", "system"),
+    ProviderOption("🗂", "Browse all", "Open with your default file explorer (like Gmail does)", null)
+)
 
 /**
  * Quick-choose sheet shown before the system picker. Tapping a provider
@@ -116,13 +112,18 @@ fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
             Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
         )
     }
-    val pkg = option.packageName ?: return base
-    // Best-effort initial-URI hints; provider may ignore them.
+    val pkg = option.packageName
+    // "Browse all" (packageName == null) → user's DEFAULT handler, exactly like
+    // Gmail's attachment picker: whatever the user set 'Always' for. Never
+    // pinned, never chooser-wrapped — Android's own resolution, user-driven.
+    if (pkg == null) return base
+    // "Main" → best-effort initial-URI hints; provider may ignore them.
     // NOTE: these point at the provider's SAF DocumentsProvider authority —
     // NOT the vendor app's own package-internal provider. Drive's storage
     // authority is com.google.android.apps.docs.storage (NOT externalstorage,
     // which is local flash and was the old wrong hint).
     val hint = when {
+        pkg == "system" -> null // no single provider hint; land on the root list
         pkg == "com.google.android.apps.docs" -> "content://com.google.android.apps.docs.storage/document/root"
         pkg == "com.microsoft.skydrive" -> "content://com.microsoft.skydrive.content.storage_access_provider/document/root"
         pkg == "com.dropbox.android" -> "content://com.dropbox.android.provider/document/root"

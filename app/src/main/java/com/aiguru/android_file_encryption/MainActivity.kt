@@ -153,14 +153,11 @@ fun AppNavigation(
                         }.start()
                     }
                 }
-                if (opt.packageName != null && launchFolderPickerWithIntent != null) {
-                    launchFolderPickerWithIntent(intent, callback)
-                } else {
-                    // "Browse all…" / local: system chooser (never a silent default),
-                    // exposing file managers (e.g. Solid Explorer) that integrate
-                    // clouds the system picker lacks (OneDrive on some devices)
-                    launchFolderPicker(callback)
-                }
+                // "Browse all" → the user's DEFAULT handler (like Gmail's picker):
+                // unpinned implicit intent, Android's own resolution, no chooser
+                // wrapper. If the user sets Solid Explorer 'Always' for folder
+                // picking, this opens Solid — their choice, their default.
+                launchFolderPicker(callback)
             },
             onDismiss = { showProviderChooser = false },
             systemPickerAvailable = remember { systemPickerAvailable(context) }
