@@ -32,9 +32,17 @@ class SafStorageManager(private val context: Context) {
     /** Expose the app context for helpers (cache sharing, contentResolver). */
     fun context(): Context = context
 
-    /** Intent to let the user pick a vault folder (Drive/OneDrive/local/…). */
-    fun openFolderPickerIntent(): Intent =
-        Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+    /**
+     * Intent for "Browse all…" — wrapped in a system CHOOSER so the user
+     * explicitly picks the handler EVERY time (createChooser never silently
+     * resolves to a default). Android's implicit resolution prefers the system
+     * documentsui even when a file manager is installed, which hid explorer
+     * integrations (OneDrive via Solid Explorer on OnePlus 12R, 2026-09-04).
+     * The chooser exposes every handler — file managers included — letting
+     * users route through an explorer that integrates their cloud.
+     */
+    fun openFolderPickerIntent(): Intent {
+        val tree = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
             addFlags(
                 Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
@@ -42,6 +50,8 @@ class SafStorageManager(private val context: Context) {
                 Intent.FLAG_GRANT_PREFIX_URI_PERMISSION
             )
         }
+        return android.content.Intent.createChooser(tree, "Choose a vault folder")
+    }
 
     /**
      * Call from the picker result. Persists the tree permission across reboots

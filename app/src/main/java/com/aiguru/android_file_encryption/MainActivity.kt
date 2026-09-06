@@ -156,6 +156,9 @@ fun AppNavigation(
                 if (opt.packageName != null && launchFolderPickerWithIntent != null) {
                     launchFolderPickerWithIntent(intent, callback)
                 } else {
+                    // "Browse all…" / local: system chooser (never a silent default),
+                    // exposing file managers (e.g. Solid Explorer) that integrate
+                    // clouds the system picker lacks (OneDrive on some devices)
                     launchFolderPicker(callback)
                 }
             },
