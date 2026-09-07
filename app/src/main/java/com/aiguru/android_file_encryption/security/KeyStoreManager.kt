@@ -3,11 +3,13 @@ package com.aiguru.android_file_encryption.security
 import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyInfo
 import android.security.keystore.KeyProperties
 import androidx.annotation.RequiresApi
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import timber.log.Timber
+import java.security.KeyFactory
 import java.security.KeyStore
 import javax.crypto.Cipher
 import javax.crypto.KeyGenerator
@@ -64,32 +66,39 @@ class KeyStoreManager(private val context: Context) {
     @RequiresApi(Build.VERSION_CODES.M)
     fun generateAndStoreKey(alias: String): SecretKey {
         return try {
-            val keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES,
-                ANDROID_KEYSTORE
-            )
-
-            val builder = KeyGenParameterSpec.Builder(
-                getKeyAlias(alias),
-                KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
-            )
-                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                .setKeySize(256)
-                .setUserAuthenticationRequired(true)
-
-            // Enable hardware-backed key storage if available
+            // Try StrongBox where the device has it, but never crash when it is rejected
+            // (no StrongBox hardware / secure-enclave quota exhausted): fall back to the TEE.
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                builder.setIsStrongBoxBacked(true)
+                try {
+                    val strongBoxSpec = baseSpecBuilder(alias).setIsStrongBoxBacked(true).build()
+                    val strongBoxGen = newKeyGenerator()
+                    strongBoxGen.init(strongBoxSpec)
+                    return strongBoxGen.generateKey()
+                } catch (e: Exception) {
+                    Timber.w(e, "StrongBox unavailable; falling back to software/TEE Keystore")
+                }
             }
-
-            keyGenerator.init(builder.build())
+            val keyGenerator = newKeyGenerator()
+            keyGenerator.init(baseSpecBuilder(alias).build())
             keyGenerator.generateKey()
         } catch (e: Exception) {
             Timber.e(e, "Failed to generate and store key in Keystore")
             throw SecurityException("Key generation failed", e)
         }
     }
+
+    private fun baseSpecBuilder(alias: String): KeyGenParameterSpec.Builder =
+        KeyGenParameterSpec.Builder(
+            getKeyAlias(alias),
+            KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT
+        )
+            .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+            .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+            .setKeySize(256)
+            .setUserAuthenticationRequired(true)
+
+    private fun newKeyGenerator(): KeyGenerator =
+        KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
 
     /**
      * Retrieve a key from Android Keystore
@@ -202,36 +211,25 @@ class KeyStoreManager(private val context: Context) {
     }
 
     /**
-     * Check if device supports hardware-backed key storage
+     * Check if device supports hardware-backed key storage.
+     * Generates a throwaway key and asks Keystore via KeyInfo whether it actually
+     * lives in secure hardware (the old "entry is a SecretKeyEntry" check always
+     * returned true, so it was meaningless).
      */
+    @Suppress("DEPRECATION") // isInsideSecureHardware deprecated in SDK 35+; fine for minSdk 24 probe
     fun isHardwareBacked(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                val keyAlias = "test_hardware_backed"
-                val key = generateAndStoreKey(keyAlias)
-                val isHardwareBacked = keyStore.getEntry(getKeyAlias(keyAlias), null)
-                    .let { it as? KeyStore.SecretKeyEntry }
-                    ?.let { entry ->
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            // Check if key is hardware-backed (API 31+)
-                            try {
-                                val entry = keyStore.getEntry(getKeyAlias(keyAlias), null)
-                                entry is KeyStore.SecretKeyEntry
-                            } catch (e: Exception) {
-                                false
-                            }
-                        } else {
-                            false
-                        }
-                    } ?: false
-                
-                deleteKey(keyAlias)
-                isHardwareBacked
-            } catch (e: Exception) {
-                Timber.e(e, "Failed to check hardware backing")
-                false
-            }
-        } else {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return false
+        return try {
+            val keyAlias = "test_hardware_backed"
+            val key = generateAndStoreKey(keyAlias)
+            val keyFactory = KeyFactory.getInstance(key.algorithm, ANDROID_KEYSTORE)
+            val info = keyFactory.getKeySpec(key, KeyInfo::class.java) as? KeyInfo
+            val isHardwareBacked = info?.isInsideSecureHardware ?: false
+
+            deleteKey(keyAlias)
+            isHardwareBacked
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to check hardware backing")
             false
         }
     }

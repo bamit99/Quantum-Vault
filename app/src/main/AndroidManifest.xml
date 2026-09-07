@@ -18,6 +18,12 @@
         <package android:name="com.google.android.apps.docs" />
         <package android:name="com.microsoft.skydrive" />
         <package android:name="com.dropbox.android" />
+        <!-- corporate Microsoft: OneDrive for Business / SharePoint files live in
+             Outlook, SharePoint, and the 365 hub — detect them for the chooser
+             and to badge the remembered location correctly -->
+        <package android:name="com.microsoft.office.outlook" />
+        <package android:name="com.microsoft.sharepoint" />
+        <package android:name="com.microsoft.office.officehub" />
         <!-- system SAF picker: targeted by component so third-party file
              explorers can't hijack ACTION_OPEN_DOCUMENT_TREE -->
         <package android:name="com.google.android.documentsui" />
@@ -57,12 +63,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
-        
-        <!-- Firebase Authentication -->
-        <meta-data
-            android:name="com.google.firebase.auth.api"
-            android:value="true" />
-            
+
     </application>
 
 </manifest>

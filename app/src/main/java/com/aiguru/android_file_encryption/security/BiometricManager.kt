@@ -97,9 +97,19 @@ class BiometricManager(private val context: Context) {
         subtitle: String = "Confirm your identity to continue",
         description: String = "Use your biometric credential to authenticate"
     ): BiometricResult = suspendCancellableCoroutine { continuation ->
+        // Resume-once guard: BiometricPrompt may fire onAuthenticationFailed (a
+        // transient retry signal) and then a terminal error on the same prompt, and a
+        // coroutine continuation can only ever be resumed a single time.
+        var resumed = false
+        fun resumeOnce(result: BiometricResult) {
+            if (!resumed) {
+                resumed = true
+                continuation.resume(result)
+            }
+        }
         try {
             if (!isBiometricAvailable()) {
-                continuation.resume(BiometricResult.Error("Biometric authentication not available"))
+                resumeOnce(BiometricResult.Error("Biometric authentication not available"))
                 return@suspendCancellableCoroutine
             }
 
@@ -112,13 +122,13 @@ class BiometricManager(private val context: Context) {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
                         Timber.d("Biometric authentication succeeded")
-                        continuation.resume(BiometricResult.Success)
+                        resumeOnce(BiometricResult.Success)
                     }
 
                     override fun onAuthenticationFailed() {
                         super.onAuthenticationFailed()
                         Timber.w("Biometric authentication failed")
-                        continuation.resume(BiometricResult.Failed)
+                        resumeOnce(BiometricResult.Failed)
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -127,10 +137,10 @@ class BiometricManager(private val context: Context) {
                         when (errorCode) {
                             BiometricPrompt.ERROR_USER_CANCELED,
                             BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
-                                continuation.resume(BiometricResult.Cancelled)
+                                resumeOnce(BiometricResult.Cancelled)
                             }
                             else -> {
-                                continuation.resume(BiometricResult.Error(errString.toString()))
+                                resumeOnce(BiometricResult.Error(errString.toString()))
                             }
                         }
                     }
@@ -152,12 +162,13 @@ class BiometricManager(private val context: Context) {
             
             // Handle cancellation
             continuation.invokeOnCancellation {
+                resumed = true
                 Timber.d("Biometric authentication cancelled by coroutine")
             }
             
         } catch (e: Exception) {
             Timber.e(e, "Error during biometric authentication")
-            continuation.resume(BiometricResult.Error(e.message ?: "Authentication failed"))
+            resumeOnce(BiometricResult.Error(e.message ?: "Authentication failed"))
         }
     }
 
@@ -168,9 +179,16 @@ class BiometricManager(private val context: Context) {
         activity: FragmentActivity,
         promptInfo: PromptInfo
     ): BiometricResult = suspendCancellableCoroutine { continuation ->
+        var resumed = false
+        fun resumeOnce(result: BiometricResult) {
+            if (!resumed) {
+                resumed = true
+                continuation.resume(result)
+            }
+        }
         try {
             if (!isBiometricAvailable()) {
-                continuation.resume(BiometricResult.Error("Biometric authentication not available"))
+                resumeOnce(BiometricResult.Error("Biometric authentication not available"))
                 return@suspendCancellableCoroutine
             }
 
@@ -183,13 +201,13 @@ class BiometricManager(private val context: Context) {
                     override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                         super.onAuthenticationSucceeded(result)
                         Timber.d("Biometric authentication succeeded")
-                        continuation.resume(BiometricResult.Success)
+                        resumeOnce(BiometricResult.Success)
                     }
 
                     override fun onAuthenticationFailed() {
                         super.onAuthenticationFailed()
                         Timber.w("Biometric authentication failed")
-                        continuation.resume(BiometricResult.Failed)
+                        resumeOnce(BiometricResult.Failed)
                     }
 
                     override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
@@ -198,10 +216,10 @@ class BiometricManager(private val context: Context) {
                         when (errorCode) {
                             BiometricPrompt.ERROR_USER_CANCELED,
                             BiometricPrompt.ERROR_NEGATIVE_BUTTON -> {
-                                continuation.resume(BiometricResult.Cancelled)
+                                resumeOnce(BiometricResult.Cancelled)
                             }
                             else -> {
-                                continuation.resume(BiometricResult.Error(errString.toString()))
+                                resumeOnce(BiometricResult.Error(errString.toString()))
                             }
                         }
                     }
@@ -211,12 +229,13 @@ class BiometricManager(private val context: Context) {
             biometricPrompt.authenticate(promptInfo)
             
             continuation.invokeOnCancellation {
+                resumed = true
                 Timber.d("Biometric authentication cancelled by coroutine")
             }
             
         } catch (e: Exception) {
             Timber.e(e, "Error during biometric authentication")
-            continuation.resume(BiometricResult.Error(e.message ?: "Authentication failed"))
+            resumeOnce(BiometricResult.Error(e.message ?: "Authentication failed"))
         }
     }
 

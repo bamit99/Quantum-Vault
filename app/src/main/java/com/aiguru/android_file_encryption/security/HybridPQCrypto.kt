@@ -158,7 +158,7 @@ class HybridPQCrypto(private val context: Context) {
             .putString(PREF_PUB, Base64.encodeToString(kemPub, Base64.NO_WRAP))
             .putString(PREF_PUB_X, Base64.encodeToString(xPub, Base64.NO_WRAP))
             .putString(PREF_SEALED, Base64.encodeToString(sealedIv.plus(sealedPriv), Base64.NO_WRAP))
-            .apply()
+            .commit() // synchronous — a crash right after keygen must not lose the fresh keys
         Timber.i("PQ vault keys generated: ML-KEM-768 + X25519, private halves sealed in Keystore")
     }
 
@@ -200,6 +200,7 @@ class HybridPQCrypto(private val context: Context) {
         val ephPub = eph.generatePublicKey().getEncoded()
         val sharedClassical = ByteArray(X25519.SCALAR_SIZE)
         eph.generateSecret(xPub, sharedClassical, 0)
+        requireNonZeroSecret(sharedClassical)
 
         // 4. PQ leg: ML-KEM-768 encapsulate
         val kem: SecretWithEncapsulation = MLKEMGenerator(SecureRandom()).generateEncapsulated(mlkemPub)
@@ -313,6 +314,8 @@ class HybridPQCrypto(private val context: Context) {
             val ephPubKey = X25519PublicKeyParameters(ephPub, 0)
             val sharedClassical = ByteArray(X25519.SCALAR_SIZE)
             xPrivKey.generateSecret(ephPubKey, sharedClassical, 0)
+            java.util.Arrays.fill(xPriv, 0)
+            requireNonZeroSecret(sharedClassical)
 
             // PQ leg
             val sharedPQ = MLKEMExtractor(kemPrivParams).extractSecret(encapsulation)
@@ -379,7 +382,7 @@ class HybridPQCrypto(private val context: Context) {
             .putString(PREF_PUB, Base64.encodeToString(pubMlkem, Base64.NO_WRAP))
             .putString(PREF_PUB_X, Base64.encodeToString(pubX25519, Base64.NO_WRAP))
             .putString(PREF_SEALED, Base64.encodeToString(sealedIv.plus(sealedPriv), Base64.NO_WRAP))
-            .apply()
+            .commit() // synchronous — a crash right after restore must not leave the old identity sealed
         Timber.i("Escrowed vault keys imported into device vault")
         return VaultEscrow.fingerprint(pubMlkem, pubX25519)
     }
@@ -400,6 +403,17 @@ class HybridPQCrypto(private val context: Context) {
 
     private fun hasMagic(blob: ByteArray): Boolean =
         blob.size > MAGIC.size && (0 until MAGIC.size).all { blob[it] == MAGIC[it] }
+
+    /**
+     * Reject the degenerate all-zero X25519 shared secret (low-order / clamp edge
+     * cases). Behind AEAD this is not exploitable, but never feed an all-zero
+     * secret into HKDF as a supposed KEK input.
+     */
+    private fun requireNonZeroSecret(secret: ByteArray) {
+        if (secret.all { it == 0.toByte() }) {
+            throw SecurityException("X25519 produced an all-zero shared secret")
+        }
+    }
 
     /** Single-shot AES-GCM helper. Returns iv||ct||tag when encrypting; expects iv||ct||tag when decrypting. */
     private fun aesGcm(encrypt: Boolean, key: ByteArray, data: ByteArray): ByteArray {
@@ -443,6 +457,7 @@ class HybridPQCrypto(private val context: Context) {
         val both = c.doFinal(sealed.copyOfRange(IV_LEN, sealed.size))
         val xPriv = both.copyOfRange(0, X25519PrivateKeyParameters.KEY_SIZE)
         val kemPriv = MLKEMPrivateKeyParameters(MLKEMParameters.ml_kem_768, both.copyOfRange(X25519PrivateKeyParameters.KEY_SIZE, both.size))
+        java.util.Arrays.fill(both, 0)
         return xPriv to kemPriv
     }
 }

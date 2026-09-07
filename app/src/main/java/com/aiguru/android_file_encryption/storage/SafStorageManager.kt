@@ -3,7 +3,9 @@ package com.aiguru.android_file_encryption.storage
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.activity.result.contract.ActivityResultContracts
+import com.aiguru.android_file_encryption.security.VaultEscrow
 import timber.log.Timber
 
 /**
@@ -25,6 +27,9 @@ class SafStorageManager(private val context: Context) {
         private const val PREFS = "saf_storage"
         private const val KEY_TREE_URI = "vault_tree_uri"
         private const val KEY_TREE_NAME = "vault_tree_name"
+
+        /** Dedicated folder auto-created inside the picked parent for a NEW vault. */
+        const val VAULT_FOLDER = "QuantumVault"
     }
 
     private val prefs by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
@@ -71,26 +76,78 @@ class SafStorageManager(private val context: Context) {
             }
         }
 
-        // SAF sometimes returns a bare tree URI; normalize to the document form we can write into
-        val normalized = try {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q &&
-                !treeUri.toString().contains("/document/")) {
-                treeUri
-            } else treeUri
-        } catch (e: Exception) { treeUri }
-
         context.contentResolver.takePersistableUriPermission(
-            normalized,
+            treeUri,
             Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         )
 
-        val name = queryDisplayName(normalized) ?: "Vault"
+        val name = queryDisplayName(treeUri) ?: "Vault"
         prefs.edit()
-            .putString(KEY_TREE_URI, normalized.toString())
+            .putString(KEY_TREE_URI, treeUri.toString())
             .putString(KEY_TREE_NAME, name)
             .apply()
-        Timber.i("Vault location persisted: $name ($normalized)")
+        Timber.i("Vault location persisted: $name ($treeUri)")
         return name
+    }
+
+    /**
+     * Pick-time vault-folder prep for the "create a vault" step.
+     *
+     * There is no SAF "create-folder" intent — RFC: a folder is picked as a tree
+     * (ACTION_OPEN_DOCUMENT_TREE), and account/devices either create it inside the
+     * picker UI or programmatically afterwards. We do the latter:
+     *
+     *   1. Picked folder already hosts this vault (.vaultkey) → return it unchanged
+     *      (hostedVault = true). Restore/adopt path — never mint a duplicate folder.
+     *   2. Picked folder already contains a "QuantumVault/" child → reuse its subtree
+     *      (idempotent re-entry after a mid-flight retry).
+     *   3. Else auto-create "QuantumVault/" via DocumentsContract.createDocument
+     *      (MIME_TYPE_DIR) inside the picked folder and return THAT subtree, so the
+     *      vault has a dedicated, named home instead of living in whatever parent
+     *      the user happened to select.
+     *   4. Provider refuses (no dir-creation support, e.g. some cloud providers) or
+     *      anything fails → fall back to the picked folder itself, so vault creation
+     *      always completes — the vault just lives at the pick site.
+     */
+    fun prepareVaultLocation(pickedTree: Uri): PreparedLocation {
+        val resolver = context.contentResolver
+
+        val hostedVault = try {
+            DocumentHelper.findExisting(resolver, pickedTree, VaultEscrow.FILE_NAME) != null
+        } catch (e: Exception) {
+            Timber.w(e, "Escrow probe failed — assuming fresh location")
+            false
+        }
+        if (hostedVault) return PreparedLocation(pickedTree, hostedVault = true)
+
+        val existingChild = try {
+            DocumentHelper.findExisting(resolver, pickedTree, VAULT_FOLDER)
+        } catch (e: Exception) {
+            Timber.w(e, "Existing '$VAULT_FOLDER' probe failed")
+            null
+        }
+        if (existingChild != null) {
+            return PreparedLocation(
+                DocumentsContract.buildTreeDocumentUri(pickedTree.authority, DocumentsContract.getDocumentId(existingChild)),
+                hostedVault = false
+            )
+        }
+
+        val created = try {
+            DocumentHelper.createDocument(resolver, pickedTree, VAULT_FOLDER, DocumentsContract.Document.MIME_TYPE_DIR)
+        } catch (e: Exception) {
+            Timber.w(e, "Auto-create of '$VAULT_FOLDER' failed — using picked folder directly")
+            null
+        }
+        return if (created != null) {
+            PreparedLocation(
+                DocumentsContract.buildTreeDocumentUri(pickedTree.authority, DocumentsContract.getDocumentId(created)),
+                hostedVault = false,
+                createdFolder = true
+            )
+        } else {
+            PreparedLocation(pickedTree, hostedVault = false)
+        }
     }
 
     /** Whether a vault location is already remembered. */
@@ -109,7 +166,8 @@ class SafStorageManager(private val context: Context) {
 
     /**
      * Save [data] as [fileName] inside the remembered folder (creates the file,
-     * overwrites if it exists). Returns the document URI.
+     * overwrites delete+create if one with that name already exists). Returns the
+     * document URI.
      */
     fun save(fileName: String, data: ByteArray, mimeType: String = "application/octet-stream"): Uri {
         val tree = requireNotNull(locationUri()) { "No vault location picked yet" }
@@ -118,16 +176,15 @@ class SafStorageManager(private val context: Context) {
         val docUri = try {
             DocumentHelper.createDocument(resolver, tree, fileName, mimeType)
         } catch (e: Exception) {
-            // File may already exist → try replacing
             DocumentHelper.overwriteOrCreate(resolver, tree, fileName, mimeType)
                 ?: throw java.io.IOException("Could not create $fileName in vault location", e)
         }
 
-        resolver.openOutputStream(docUri ?: DocumentHelper.createDocument(resolver, tree, fileName, mimeType))!!.use { out ->
+        resolver.openOutputStream(docUri)!!.use { out ->
             out.write(data)
         }
         Timber.i("Saved $fileName (${data.size} B) to ${locationName()}")
-        return docUri!!
+        return docUri
     }
 
     /** Find a child document by name in the remembered tree (null if absent). */
@@ -244,7 +301,10 @@ class SafStorageManager(private val context: Context) {
             auth == "com.android.providers.downloads.documents" -> LocType.LOCAL
             auth == "com.android.providers.media.documents" -> LocType.LOCAL
             auth.contains("google.android.apps.docs") || auth.contains("googledrive") -> LocType.GOOGLE_DRIVE
-            auth.contains("skydrive") || auth.contains("microsoft.onedrive") || auth.contains("com.microsoft.sharepoint") -> LocType.ONEDRIVE
+            auth.contains("skydrive") || auth.contains("microsoft.onedrive") ||
+            // corporate Microsoft files roots (Outlook/SharePoint/365 hub)
+            auth.contains("com.microsoft.sharepoint") || auth.contains("microsoft.office.outlook") ||
+            auth.contains("microsoft.office.officehub") -> LocType.ONEDRIVE
             auth.contains("dropbox") -> LocType.DROPBOX
             else -> LocType.OTHER_CLOUD
         }
@@ -294,4 +354,14 @@ data class SafFileInfo(
     val name: String,
     val isFolder: Boolean,
     val size: Long
+)
+
+/** Result of [SafStorageManager.prepareVaultLocation] — where the vault will live. */
+data class PreparedLocation(
+    /** Tree URI that becomes the vault root (picked parent or auto-created subfolder). */
+    val tree: Uri,
+    /** true when the picked folder already hosts a vault (.vaultkey) — restore/adopt, not create. */
+    val hostedVault: Boolean,
+    /** true when a fresh '$VAULT_FOLDER' folder was auto-created at the pick site. */
+    val createdFolder: Boolean = false
 )

@@ -10,31 +10,67 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import timber.log.Timber
 
 /**
- * Vault location chooser (simplified per amitb, 2026-09-04).
- * Two options only:
- *   - Main   → pinned system SAF picker (dynamic OEM-agnostic component pin,
- *              destination jump via EXTRA_INITIAL_URI, honors user default
- *              only when it IS the system picker)
- *   - Browse all → the USER'S DEFAULT handler, whatever they set ("Files"
- *              is the system SAF default; their file explorer can be set
- *              as default like Gmail's picker). Never pinned, never forced
- *              into a chooser — resolution is Android's own, driven by the
- *              user's explicit 'Always' choices.
+ * Vault location chooser (SAF; per amitb, 2026-09-04).
+ * Options, in order:
+ *   - Main         → pinned system SAF picker (dynamic OEM-agnostic component pin,
+ *                    destination jump via EXTRA_INITIAL_URI, honors user default
+ *                    only when it IS the system picker)
+ *   - Installed cloud providers (Google Drive / OneDrive / Dropbox, detected at
+ *     runtime via PackageManager — visible through the <queries> manifest entries)
+ *     → the SYSTEM SAF picker pinned, pre-seeded at that provider's LIVE root
+ *       (EXTRA_INITIAL_URI from the provider's ROOTS API — never OEM "Files", never
+ *       hardcoded authorities; provider apps themselves rarely expose a picker)
+ *   - Browse all   → the pinned system SAF picker at its top level (never the user
+ *                    default, never an OEM/file-manager hijack)
  */
 data class ProviderOption(val glyph: String, val title: String, val subtitle: String, val packageName: String?)
 
-/** Two fixed options: Main (system picker) + Browse all (user default). */
-fun detectProviders(ctx: Context): List<ProviderOption> = listOf(
-    ProviderOption("🔐", "Main vault location", "System picker — jumps into Drive/Dropbox when installed", "system"),
-    ProviderOption("🗂", "Browse all", "Open with your default file explorer (like Gmail does)", null)
-)
+/** Main + the cloud providers installed on this device + Browse all. */
+fun detectProviders(ctx: Context): List<ProviderOption> {
+    fun installed(pkg: String): Boolean = try {
+        ctx.packageManager.getPackageInfo(pkg, 0) != null
+    } catch (e: Exception) {
+        false
+    }
+
+    val cloud = buildList {
+        if (installed("com.google.android.apps.docs")) {
+            add(ProviderOption("☁️", "Google Drive", "Jump into your Drive vault folder", "com.google.android.apps.docs"))
+        }
+        if (installed("com.microsoft.skydrive")) {
+            add(ProviderOption("☁️", "OneDrive", "Jump into your OneDrive vault folder", "com.microsoft.skydrive"))
+        }
+        if (installed("com.dropbox.android")) {
+            add(ProviderOption("☁️", "Dropbox", "Jump into your Dropbox vault folder", "com.dropbox.android"))
+        }
+        // Corporate/Microsoft 365 — OneDrive for Business & SharePoint files live
+        // behind these apps (Work/School sign-in must be present). SAF-only; no OAuth.
+        if (installed("com.microsoft.office.outlook")) {
+            add(ProviderOption("🏢", "Outlook", "OneDrive for Business / SharePoint files", "com.microsoft.office.outlook"))
+        }
+        if (installed("com.microsoft.sharepoint")) {
+            add(ProviderOption("🏢", "SharePoint", "Company SharePoint / OneDrive files", "com.microsoft.sharepoint"))
+        }
+        if (installed("com.microsoft.office.officehub")) {
+            add(ProviderOption("🏢", "Microsoft 365", "Office / OneDrive for Business files", "com.microsoft.office.officehub"))
+        }
+    }
+
+    return buildList {
+        add(ProviderOption("🔐", "Main vault location", "System picker — then choose the folder", "system"))
+        addAll(cloud)
+        add(ProviderOption("🗂", "Browse all", "Open the system picker at the top level", null))
+    }
+}
 
 /**
  * Quick-choose sheet shown before the system picker. Tapping a provider
- * jumps into that provider's root in the SAF documents UI
- * (EXTRA_INITIAL_URI is a hint honored by the provider app).
+ * jumps into that provider's root in the SAF documents UI — the pin is the
+ * SYSTEM DocumentsUI and the jump is EXTRA_INITIAL_URI built from the
+ * provider's live ROOTS (authority + rootId), never a static authority.
  */
 @Composable
 fun ProviderChooserSheet(
@@ -140,6 +176,9 @@ private fun resolveSystemPicker(ctx: Context, base: Intent) {
         }
         if (best != null) {
             base.setClassName(best.activityInfo.packageName, best.activityInfo.name)
+            Timber.i("SAF picker pinned to system component: ${best.activityInfo.packageName}/${best.activityInfo.name}")
+        } else {
+            Timber.w("No system SAF handler resolved — leaving implicit")
         }
     } catch (e: Exception) {
         // resolution unavailable → implicit intent; guidance path covers this
@@ -147,16 +186,20 @@ private fun resolveSystemPicker(ctx: Context, base: Intent) {
 }
 
 /**
- * Intent that opens the SAF picker pre-seeded at a provider root (best-effort).
+ * Intent that opens a vault folder picker for a specific provider.
  *
- * Anti-hijack: third-party file explorers (Solid Explorer, OEM My Files, …)
- * register as handlers for ACTION_OPEN_DOCUMENT_TREE, show their own browser,
- * ignore EXTRA_INITIAL_URI, and may not expose all cloud roots. The device's
- * SYSTEM picker is resolved dynamically (queryIntentActivities +
- * MATCH_SYSTEM_ONLY) and pinned BY COMPONENT — OEM-agnostic, works on
- * Pixel/OnePlus/Samsung/Xiaomi without hardcoding package names. When no
- * system handler resolves (or resolution fails) we fall back to the implicit
- * intent; the caller can detect that case via [systemPickerAvailable].
+ * Strategy for [option] (cloud providers only):
+ *   1. If the provider app ships its OWN DocumentsActivity for
+ *      ACTION_OPEN_DOCUMENT_TREE (rare — Google Docs/OneDrive/Dropbox do NOT on
+ *      current builds, verified on-device) pin the intent to THAT activity inside
+ *      the provider package for a native picker.
+ *   2. Normal path: pin to the dynamically-resolved SYSTEM SAF DocumentsUI and
+ *      pre-seed EXTRA_INITIAL_URI with the provider's LIVE root document (queried
+ *      from the provider's ROOTS API — authority + rootId never hardcoded).
+ *      The tree URI the user picks still returns with read/write(+persistable)
+ *      grants, so takePersistableUriPermission works exactly as today.
+ *   3. No system picker resolves → implicit intent; caller surfaces guidance via
+ *      [systemPickerAvailable].
  */
 fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
     val base = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
@@ -168,28 +211,122 @@ fun providerPickerIntent(option: ProviderOption, ctx: Context? = null): Intent {
         )
     }
     val pkg = option.packageName
-    // "Browse all" (packageName == null) → user's DEFAULT handler, exactly like
-    // Gmail's attachment picker: whatever the user set 'Always' for. Never
-    // pinned, never chooser-wrapped — Android's own resolution, user-driven.
+    // "Browse all" (packageName == null) → implicit intent (the USER'S DEFAULT
+    // handler). Callers normally route that case through browseAllIntent() instead
+    // (which pins the system SAF picker); this fallback exists for direct callers.
     if (pkg == null) return base
-    // "Main" → best-effort initial-URI hints; provider may ignore them.
-    // NOTE: these point at the provider's SAF DocumentsProvider authority —
-    // NOT the vendor app's own package-internal provider. Drive's storage
-    // authority is com.google.android.apps.docs.storage (NOT externalstorage,
-    // which is local flash and was the old wrong hint).
-    val hint = when {
-        pkg == "system" -> null // no single provider hint; land on the root list
-        pkg == "com.google.android.apps.docs" -> "content://com.google.android.apps.docs.storage/document/root"
-        pkg == "com.microsoft.skydrive" -> "content://com.microsoft.skydrive.content.storage_access_provider/document/root"
-        pkg == "com.dropbox.android" -> "content://com.dropbox.android.provider/document/root"
+    if (ctx == null) {
+        // No context → best-effort static hint only.
+        setStaticInitialHint(base, pkg)
+        return base
+    }
+
+    // The destination jump: EXTRA_INITIAL_URI must point at the provider's REAL
+    // SAF document root. We resolve it LIVE from the provider (authority + root
+    // documentId read via the ROOTS API) — hardcoded authorities go stale
+    // (OneDrive's moved to com.microsoft.skydrive.content.StorageAccessProvider).
+    providerRootUri(ctx, pkg)?.let {
+        base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, it)
+    }
+
+    // 1) Preferred: the provider's own DocumentsActivity (real cloud jump).
+    if (pkg != "system") {
+        resolveProviderDocumentsActivity(ctx, pkg)?.let { comp ->
+            base.setClassName(comp.packageName, comp.className)
+            Timber.i("Provider picker pinned to OWN activity for $pkg: ${comp.packageName}/${comp.className}")
+            return base
+        }
+        Timber.w("Provider $pkg has no own ACTION_OPEN_DOCUMENT_TREE activity — falling through")
+    }
+
+    // 2) Fallback: pinned SYSTEM SAF DocumentsUI + initial-URI jump to the root.
+    resolveSystemPicker(ctx, base)
+    Timber.i(
+        "Provider picker final: pkg=$pkg component=${base.component} " +
+            "initial=${base.getParcelableExtra<android.net.Uri>(android.provider.DocumentsContract.EXTRA_INITIAL_URI)}"
+    )
+    return base
+}
+
+/** Best-effort static EXTRA_INITIAL_URI used when no Context is available. */
+private fun setStaticInitialHint(base: Intent, pkg: String) {
+    val static = when (pkg) {
+        "com.google.android.apps.docs" -> "content://com.google.android.apps.docs.storage/document/root"
+        "com.microsoft.skydrive" -> "content://com.microsoft.skydrive.content.StorageAccessProvider/document/root"
+        "com.dropbox.android" -> "content://com.dropbox.android.provider/document/root"
+        "com.microsoft.office.outlook" -> "content://com.microsoft.office.outlook.files/document/root"
         else -> null
     }
-    if (hint != null) {
-        try { base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(hint)) } catch (e: Exception) { /* hint only */ }
+    if (static != null) {
+        try { base.putExtra(android.provider.DocumentsContract.EXTRA_INITIAL_URI, android.net.Uri.parse(static)) } catch (e: Exception) { /* hint only */ }
     }
-    if (ctx == null) return base
-    resolveSystemPicker(ctx, base)
-    return base
+}
+
+/**
+ * Resolve the provider's CURRENT SAF DocumentsProvider root as an
+ * EXTRA_INITIAL_URI target. Queries buildRootsUri() so we survive authority and
+ * root-documentId drift. On OEMs that enforce provider association (OnePlus
+ * checkAssociationAndPermissionLocked denies cross-app ROOTS reads) the live
+ * query throws → fall back to the static known-good authority + "root" doc:
+ * never return bare-null when we still have a usable authority, because
+ * EXTRA_INITIAL_URI is honored normally on Stock/Pixel/Samsung-style pickers.
+ * Returns null only for unknown packages.
+ */
+private fun providerRootUri(ctx: Context, pkg: String): android.net.Uri? {
+    val authority = when (pkg) {
+        "com.google.android.apps.docs" -> "com.google.android.apps.docs.storage"
+        "com.microsoft.skydrive" -> "com.microsoft.skydrive.content.StorageAccessProvider"
+        "com.dropbox.android" -> "com.dropbox.android.provider"
+        // Outlook hosts OneDrive for Business + SharePoint files (Work signed-in).
+        // SharePoint & 365 hub: unknown/version-dependent authority → no static jump.
+        "com.microsoft.office.outlook" -> "com.microsoft.office.outlook.files"
+        else -> return null
+    }
+    try {
+        var chosen: android.net.Uri? = null
+        ctx.contentResolver.query(
+            android.provider.DocumentsContract.buildRootsUri(authority),
+            arrayOf(
+                android.provider.DocumentsContract.Root.COLUMN_DOCUMENT_ID,
+                android.provider.DocumentsContract.Root.COLUMN_TITLE,
+                android.provider.DocumentsContract.Root.COLUMN_FLAGS
+            ),
+            null, null, null
+        )?.use { c ->
+            while (c.moveToNext()) {
+                val docId = c.getString(0) ?: continue
+                val flags = if (c.isNull(2)) 0 else c.getInt(2)
+                val title = c.getString(1)
+                val uri = android.provider.DocumentsContract.buildDocumentUri(authority, docId)
+                // Prefer the personal (non-work, non-local) root when the provider
+                // exposes several (Drive personal vs. enterprise, phone-storage).
+                val personal = (flags and android.provider.DocumentsContract.Root.FLAG_LOCAL_ONLY) == 0 &&
+                    title?.let { !it.contains("work", true) && !it.contains("phone", true) } ?: true
+                if (chosen == null || personal) chosen = uri
+            }
+        }
+        chosen?.let { Timber.i("Provider root (live) for $pkg -> $it"); return it }
+    } catch (e: Exception) {
+        Timber.w(e, "Live ROOTS query denied for $pkg — using static fallback")
+    }
+    // Association-denied or rootless provider → static known-good target.
+    val fallback = android.net.Uri.parse("content://$authority/document/root")
+    Timber.i("Provider root (static) for $pkg -> $fallback")
+    return fallback
+}
+
+/**
+ * Find the [pkg] app's own activity that handles ACTION_OPEN_DOCUMENT_TREE, if
+ * any. Works under package-visibility: the packages are declared in <queries>,
+ * so queryIntentActivities(setPackage) can see their intent filters.
+ */
+private fun resolveProviderDocumentsActivity(ctx: Context, pkg: String): android.content.ComponentName? = try {
+    val probe = Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply { setPackage(pkg) }
+    ctx.packageManager.queryIntentActivities(probe, 0)
+        .firstOrNull()
+        ?.let { android.content.ComponentName(it.activityInfo.packageName, it.activityInfo.name) }
+} catch (e: Exception) {
+    null
 }
 
 /**

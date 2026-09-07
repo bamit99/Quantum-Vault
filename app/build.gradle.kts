@@ -2,7 +2,6 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.ksp)
 }
 
 android {
@@ -81,48 +80,13 @@ dependencies {
     // Security & Encryption
     implementation(libs.androidx.security.crypto)
     implementation(libs.androidx.biometric) // dormant legacy path (BiometricManager) — keep until v5 decision
-    
-    // Cloud Storage
-    implementation(libs.google.api.client.android)
-    implementation(libs.google.api.services.drive)
-    
-    // Google Play Services Auth
-    implementation("com.google.android.gms:play-services-auth:21.0.0")
 
-    // Firebase Authentication (commented out until google-services.json is configured)
-    // implementation(platform(libs.firebase.bom))
-    // implementation(libs.firebase.auth)
-    
-    // AWS SDK
-    implementation("com.amazonaws:aws-android-sdk-s3:2.77.0")
-    implementation("com.amazonaws:aws-android-sdk-core:2.77.0")
-    
-    // Azure Storage
-    implementation("com.microsoft.azure.android:azure-storage-android:2.0.0@aar")
-    
-    // Jetpack Navigation
-    implementation("androidx.navigation:navigation-compose:2.8.4")
-    
-    // Material Icons
+    // Material Icons (extended set for UI)
     implementation("androidx.compose.material:material-icons-extended:1.7.5")
-    
-    // ViewModel
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
-    
+
     // Post-quantum crypto (ML-KEM-768 / X25519) — Bouncy Castle
     implementation("org.bouncycastle:bcprov-jdk18on:1.85.2")
 
-    // Networking
-    implementation(libs.retrofit)
-    implementation(libs.retrofit.gson)
-    implementation(libs.okhttp)
-    implementation(libs.okhttp.logging)
-    
-    // DI
-    implementation(libs.hilt.android)
-    ksp(libs.hilt.compiler)
-    
     // Logging
     implementation(libs.timber)
     

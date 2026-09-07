@@ -61,6 +61,9 @@ object VaultEscrow {
         val iv = gcmIv
         val ct = c.doFinal(payload)
 
+        java.util.Arrays.fill(kek, 0)
+        java.util.Arrays.fill(payload, 0)
+        java.util.Arrays.fill(xPriv, 0)
         return MAGIC + escrowSalt + iv + ct
     }
 
@@ -72,27 +75,35 @@ object VaultEscrow {
     fun restoreInto(pq: HybridPQCrypto, blob: ByteArray, passphrase: CharArray): String {
         require(passphrase.isNotEmpty()) { "Empty passphrase" }
         require(blob.size > MAGIC.size + PassphraseKDF.SALT_LEN + IV_LEN + 32) { ".vaultkey blob too small / corrupted" }
-        for (i in MAGIC.indices) {
-            require(blob[i] == MAGIC[i]) { "Not a VKEY escrow blob" }
+        var kek: ByteArray? = null
+        try {
+            for (i in MAGIC.indices) {
+                require(blob[i] == MAGIC[i]) { "Not a VKEY escrow blob" }
+            }
+            var off = MAGIC.size
+            val escrowSalt = blob.copyOfRange(off, off + PassphraseKDF.SALT_LEN); off += PassphraseKDF.SALT_LEN
+            val iv = blob.copyOfRange(off, off + IV_LEN); off += IV_LEN
+            val ct = blob.copyOfRange(off, blob.size)
+
+            kek = PassphraseKDF.derive(passphrase, escrowSalt)
+            val c = Cipher.getInstance("AES/GCM/NoPadding")
+            c.init(Cipher.DECRYPT_MODE, SecretKeySpec(kek, "AES"), javax.crypto.spec.GCMParameterSpec(TAG_BITS, iv))
+            val payload = c.doFinal(ct) // wrong passphrase throws AEADBadTagException here — clean failure
+
+            val xPriv = payload.copyOfRange(0, X25519_PRIV_LEN)
+            val mlkemPriv = payload.copyOfRange(X25519_PRIV_LEN, payload.size - X25519_PUB_LEN - MLKEM768_PUB_LEN)
+            val pubMlkem = payload.copyOfRange(payload.size - X25519_PUB_LEN - MLKEM768_PUB_LEN, payload.size - X25519_PUB_LEN)
+            val pubX25519 = payload.copyOfRange(payload.size - X25519_PUB_LEN, payload.size)
+
+            val fp = pq.importEscrowedKeys(xPriv, mlkemPriv = mlkemPriv, pubMlkem = pubMlkem, pubX25519 = pubX25519)
+            // No fingerprint logging (audit P2-4) — even a prefix is unnecessary exposure.
+            java.util.Arrays.fill(payload, 0)
+            java.util.Arrays.fill(xPriv, 0)
+            java.util.Arrays.fill(mlkemPriv, 0)
+            return fp
+        } finally {
+            kek?.let { java.util.Arrays.fill(it, 0) }
         }
-        var off = MAGIC.size
-        val escrowSalt = blob.copyOfRange(off, off + PassphraseKDF.SALT_LEN); off += PassphraseKDF.SALT_LEN
-        val iv = blob.copyOfRange(off, off + IV_LEN); off += IV_LEN
-        val ct = blob.copyOfRange(off, blob.size)
-
-        val kek = PassphraseKDF.derive(passphrase, escrowSalt)
-        val c = Cipher.getInstance("AES/GCM/NoPadding")
-        c.init(Cipher.DECRYPT_MODE, SecretKeySpec(kek, "AES"), javax.crypto.spec.GCMParameterSpec(TAG_BITS, iv))
-        val payload = c.doFinal(ct) // wrong passphrase throws AEADBadTagException here — clean failure
-
-        val xPriv = payload.copyOfRange(0, X25519_PRIV_LEN)
-        val mlkemPriv = payload.copyOfRange(X25519_PRIV_LEN, payload.size - X25519_PUB_LEN - MLKEM768_PUB_LEN)
-        val pubMlkem = payload.copyOfRange(payload.size - X25519_PUB_LEN - MLKEM768_PUB_LEN, payload.size - X25519_PUB_LEN)
-        val pubX25519 = payload.copyOfRange(payload.size - X25519_PUB_LEN, payload.size)
-
-        val fp = pq.importEscrowedKeys(xPriv, mlkemPriv = mlkemPriv, pubMlkem = pubMlkem, pubX25519 = pubX25519)
-        // No fingerprint logging (audit P2-4) — even a prefix is unnecessary exposure.
-        return fp
     }
 
     /** Quick sanity: is this blob a VKEY escrow? */
@@ -105,6 +116,7 @@ object VaultEscrow {
      * Returns false on wrong passphrase (GCM auth failure) or corrupt blob.
      */
     fun verifyPassphrase(blob: ByteArray, passphrase: CharArray): Boolean {
+        var kek: ByteArray? = null
         return try {
             require(blob.size > MAGIC.size + PassphraseKDF.SALT_LEN + IV_LEN + 16) { "blob too small" }
             for (i in MAGIC.indices) {
@@ -115,13 +127,16 @@ object VaultEscrow {
             val iv = blob.copyOfRange(off, off + IV_LEN); off += IV_LEN
             val ct = blob.copyOfRange(off, blob.size)
 
-            val kek = PassphraseKDF.derive(passphrase, escrowSalt)
+            kek = PassphraseKDF.derive(passphrase, escrowSalt)
             val c = Cipher.getInstance("AES/GCM/NoPadding")
             c.init(Cipher.DECRYPT_MODE, SecretKeySpec(kek, "AES"), javax.crypto.spec.GCMParameterSpec(TAG_BITS, iv))
-            c.doFinal(ct)
+            val plain = c.doFinal(ct)
+            java.util.Arrays.fill(plain, 0)
             true
         } catch (e: Exception) {
             false
+        } finally {
+            kek?.let { java.util.Arrays.fill(it, 0) }
         }
     }
 

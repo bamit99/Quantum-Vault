@@ -1,6 +1,6 @@
 # Quantum Vault 🔐
 
-**Your files, sealed before they ever leave your hands.** Quantum Vault encrypts every file on-device with NIST-standardized post-quantum cryptography — ML-KEM-768 wrapped around every byte — and tucks it into any folder you choose: Google Drive, OneDrive, local storage. No OAuth. No cloud SDK. No account. Just a vault that travels with your files.
+**Your files, sealed before they ever leave your hands.** Quantum Vault encrypts every file on-device with NIST-standardized post-quantum cryptography — ML-KEM-768 wrapped around every byte — and tucks it into any folder you choose: Google Drive, OneDrive, **OneDrive for Business/SharePoint (via Outlook)**, Dropbox, or plain local storage. No OAuth. No cloud SDK. No account. No servers. Just a vault that travels with your files.
 
 > **Platform:** Android today — **iOS follows in a few weeks.**
 
@@ -43,21 +43,31 @@ Every encrypted file you store in the cloud today can be **harvested now and dec
 2. ⚠️ **Transport:** upload/download rides on the SAF provider's HTTPS (the Drive/OneDrive app's TLS). That TLS is classical-unless-Google-enables-PQC — but TLS only protects data *in flight*; your data at rest is our ciphertext either way, and that's what quantum-vaulting is for.
 3. ⚠️ **Metadata:** cloud providers still see *that* files exist, their sizes, timestamps — not contents. (We never see them either: zero permissions, no accounts, no servers.)
 
+## Where does the vault live? (providers & corporate OneDrive)
+
+Storage is **pure SAF (Storage Access Framework)** — zero permissions, zero OAuth:
+
+- **Quick-choose sheet** detects the cloud apps actually installed on the device (Drive, OneDrive, Dropbox) *plus* the **corporate Microsoft apps** — Outlook, SharePoint, Microsoft 365 hub — which host **OneDrive for Business / SharePoint** files. Your users just sign into their Work/School account; we never see their credentials.
+- **Central creation step:** when you pick a location for a **new** vault, Quantum Vault auto-creates a dedicated **`QuantumVault/`** folder there via `DocumentsContract.createDocument` (no more "which folder do I put it in?"). If the picked folder already hosts a vault, it's adopted instead (restore path, no duplicates).
+- **Provider jump:** the intent pre-seeds `EXTRA_INITIAL_URI` at the provider's **live** root (authority + root document ID resolved from the provider's own ROOTS API). Stock Android/Pixel/Samsung-style pickers drop you straight into Drive.
+  - ⚠️ **OEM caveat:** some OEM ROMs ignore that extra, so you land in the picker's top level — reach the cloud via its **menu → your provider** (it *is* listed there). OEM file managers never take over the intent (the system SAF picker is pinned by component).
+  - ⚠️ **OneDrive note:** OneDrive files only appear in the picker when the OneDrive app is signed in; some OEM builds won't expose a SAF root for it at all. Enterprise tenants using **Intune app-protection policies** must allow third-party SAF access (or the app must be deployed as a managed app) before Outlook/SharePoint files surface.
+
 ## Build
 
 ```bash
 git clone https://github.com/bamit99/Quantum-Vault.git
-# Android StudioLadybug+ / JDK 21 (Android Studio JBR works)
+# Android Studio Ladybug+ / JDK 21 (Android Studio JBR works)
 ./gradlew assembleDebug
 ```
 
-Requirements: Android 8.0+ (SAF), BouncyCastle `bcprov-jdk18on:1.85.2` (already in `app/build.gradle.kts`).
+Requirements: Android 7.0+ (`minSdk 24`), BouncyCastle `bcprov-jdk18on:1.85.2` (already in `app/build.gradle.kts`).
 
 ## Status & roadmap
 
 See [ROADMAP.md](ROADMAP.md) and [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
-- **Shipped (v1.0):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, vault lifecycle (vault-exists guard, two-tier delete: Unlink / typed-DESTROY), **zero-permission manifest**, key-material zeroization, backup-transfer excludes, location intelligence (cloud-vs-local detection + recommendations), provider-aware quick-choose, brand icon, About + license, published security audit.
+- **Shipped (v1.0):** SAF vault (any provider, remembered location), hybrid PQ encryption (QVAULT v2 dual-wrap), per-session unlock gate, `.vaultkey` escrow + restore-on-new-device, vault lifecycle (vault-exists guard, two-tier delete: Unlink / typed-DESTROY), **zero-permission manifest**, key-material zeroization, backup-transfer excludes, location intelligence (cloud-vs-local detection + recommendations), **auto-create `QuantumVault/` folder on vault creation**, provider-aware quick-choose with **corporate Microsoft** (Outlook/SharePoint/365 — OneDrive for Business ready), live provider-root jump (best-effort; OnePlus ignores it), brand icon, About + license, published security audit.
 - **Next:** signed release build (R8), on-device test suite run, offline-handling UX (network-vs-auth error distinction, escrow caching), biometric quick-unlock.
 - Security status: [SECURITY_AUDIT.md](SECURITY_AUDIT.md) — P0 fixed, P1/P2 findings tracked in-repo.
 

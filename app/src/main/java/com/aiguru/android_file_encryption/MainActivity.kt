@@ -14,12 +14,18 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import timber.log.Timber
 
 import com.aiguru.android_file_encryption.storage.SafStorageManager
 import com.aiguru.android_file_encryption.security.VaultEscrow
@@ -44,8 +50,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var folderPickerLauncher: ActivityResultLauncher<android.content.Intent>
     private lateinit var openFileLauncher: ActivityResultLauncher<Array<String>>
 
-    // invoked when the SAF folder picker returns
-    private var pendingFolderCallback: ((String?) -> Unit)? = null
+    // invoked when the SAF folder picker returns (name, hostedVault)
+    private var pendingFolderCallback: ((String?, Boolean) -> Unit)? = null
     // invoked when the user picks a file to add to the vault
     private var pendingFileCallback: ((android.net.Uri?) -> Unit)? = null
 
@@ -63,11 +69,28 @@ class MainActivity : ComponentActivity() {
             pendingFolderCallback = null
             val uri = if (result.resultCode == RESULT_OK) result.data?.data else null
             if (uri != null) {
-                val name = safStorage.onFolderPicked(uri)
-                Toast.makeText(this, "Vault location: $name", Toast.LENGTH_SHORT).show()
-                cb?.invoke(name)
+                try {
+                    // Initial vault step = CREATE a dedicated folder. There is no SAF
+                    // "create directory" intent, so: auto-create "<picked>/QuantumVault/"
+                    // (provider DocumentsProvider willing), else use the picked folder.
+                    // If the picked folder already hosts a vault, adopt it (restore path).
+                    val prep = safStorage.prepareVaultLocation(uri)
+                    val name = try {
+                        safStorage.onFolderPicked(prep.tree)
+                    } catch (e: Exception) {
+                        // Subfolder persistence refused (provider can't hold nested-tree
+                        // grants) → persist the parent we were actually granted instead.
+                        if (prep.tree != uri) safStorage.onFolderPicked(uri) else throw e
+                    }
+                    Toast.makeText(this, "Vault location: $name", Toast.LENGTH_SHORT).show()
+                    cb?.invoke(name, prep.hostedVault)
+                } catch (e: Exception) {
+                    Timber.e(e, "Could not use picked folder")
+                    Toast.makeText(this, "Could not use this folder: ${e.message}", Toast.LENGTH_SHORT).show()
+                    cb?.invoke(null, false)
+                }
             } else {
-                cb?.invoke(null)
+                cb?.invoke(null, false)
             }
         }
 
@@ -112,20 +135,29 @@ fun AppNavigation(
     modifier: Modifier = Modifier,
     saf: SafStorageManager,
     pq: com.aiguru.android_file_encryption.security.HybridPQCrypto,
-    launchFolderPicker: ((String?) -> Unit) -> Unit,
-    launchFolderPickerWithIntent: ((android.content.Intent, (String?) -> Unit) -> Unit)? = null,
+    launchFolderPicker: ((String?, Boolean) -> Unit) -> Unit,
+    launchFolderPickerWithIntent: ((android.content.Intent, (String?, Boolean) -> Unit) -> Unit)? = null,
     launchFilePicker: ((android.net.Uri?) -> Unit) -> Unit,
     onShowToast: (String) -> Unit = {}
 ) {
     var currentScreen by remember { mutableStateOf("home") }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    // An IO lookup result for the restore screen: has this location actually got a
+    // .vaultkey escrow? Determined when the user taps "Restore", not hardcoded true.
+    var restoreEscrowFound by remember { mutableStateOf(false) }
     // main-thread dispatcher usable from worker threads anywhere in this scope
     val onMain: (Runnable) -> Unit = { r ->
         if (context is android.app.Activity) context.runOnUiThread(r)
         else { val h = android.os.Handler(android.os.Looper.getMainLooper()); h.post(r) }
     }
     var showExitDialog by remember { mutableStateOf(false) }
-    // session unlock state: vault stays locked until passphrase verified (once per app open)
+    // session unlock state: vault stays locked until passphrase verified (once per app open).
+    // NOTE (threat model): this gate is a UX/recovery boundary, NOT a hard security
+    // boundary. Decryption uses the device-leg keys directly (HybridPQCrypto), so anyone
+    // holding the phone with the OS screen unlocked (or with an unsealable device) is not
+    // stopped by it — the real boundary is the OS lock screen + Keystore wrap key. Staying
+    // remembered across process restarts avoids re-prompting after the system kills the app.
     var unlocked by rememberSaveable { mutableStateOf(false) }
     var unlockBusy by remember { mutableStateOf(false) }
     var unlockError by remember { mutableStateOf<String?>(null) }
@@ -137,28 +169,24 @@ fun AppNavigation(
             options = remember { detectProviders(context) },
             onPick = { opt ->
                 showProviderChooser = false
-                // SAF picker, optionally pre-seeded at the provider root (best-effort hint)
-                val intent = providerPickerIntent(opt, context)
-                val callback: (String?) -> Unit = { picked ->
-                    if (picked != null) {
-                        // Vault-exists guard (same as plain flow)
-                        Thread {
-                            val existing = try { saf.findChild(VaultEscrow.FILE_NAME) } catch (e: Exception) { null }
-                            onMain {
-                                if (existing != null) {
-                                    onShowToast("This folder already contains a Quantum Vault (.vaultkey). Use 'Restore vault on this device' to adopt it, or pick a different folder.")
-                                } else {
-                                    currentScreen = "passphrase_setup"
-                                }
-                            }
-                        }.start()
+                // Option-specific intent: cloud options (Drive/OneDrive/Dropbox)
+                // pre-seed the pinned system SAF picker at that provider's root
+                // (EXTRA_INITIAL_URI hint, best-effort); Main/Browse-all open the
+                // pinned system picker at its top level. Never the user default,
+                // never a chooser, never an OEM/file-manager hijack.
+                val intent = if (opt.packageName == null) browseAllIntent(context)
+                else providerPickerIntent(opt, context)
+                // Guard is now decided centrally at pick-time (prepareVaultLocation):
+                // hostedVault=true means the picked folder already contains a vault.
+                val callback: (String?, Boolean) -> Unit = cb@{ picked, hostedVault ->
+                    if (picked == null) return@cb
+                    if (hostedVault) {
+                        onShowToast("This folder already contains a Quantum Vault (.vaultkey). Use 'Restore vault on this device' to adopt it, or pick a different folder.")
+                    } else {
+                        currentScreen = "passphrase_setup"
                     }
                 }
-                // "Browse all" → EXPLICITLY the system SAF DocumentsUI (amitb brief
-                // 2026-09-04): same dynamic resolution as Main — never the user
-                // default, never a chooser, never an OEM/file-manager hijack
-                val browseIntent = browseAllIntent(context)
-                launchFolderPickerWithIntent?.let { it(browseIntent, callback) }
+                launchFolderPickerWithIntent?.let { it(intent, callback) }
                     ?: launchFolderPicker(callback)
             },
             onDismiss = { showProviderChooser = false },
@@ -204,7 +232,14 @@ fun AppNavigation(
                 currentScreen = "delete_vault"
             },
             onRestoreRequested = {
+                // Real lookup (IO) instead of the old hardcoded escrowFound=true: the
+                // restore screen shows the "no .vaultkey" warning until/unless we find one.
+                restoreEscrowFound = false
                 currentScreen = "restore"
+                scope.launch(Dispatchers.IO) {
+                    val found = try { saf.findChild(VaultEscrow.FILE_NAME) != null } catch (e: Exception) { false }
+                    withContext(Dispatchers.Main) { restoreEscrowFound = found }
+                }
             },
             onAboutRequested = {
                 currentScreen = "about"
@@ -317,7 +352,7 @@ fun AppNavigation(
             onShowToast = onShowToast
         )
         "restore" -> VaultRestoreScreen(
-            escrowFound = true, // checked at folder pick; refine when we have tree listing here
+            escrowFound = restoreEscrowFound, // reported after the IO lookup completes
             locationName = saf.locationName(),
             onBack = { currentScreen = "home" },
             onRestore = { pass, result ->
@@ -345,8 +380,9 @@ fun AppNavigation(
                 onShowToast = onShowToast
             )
         } else {
-            // direct navigation into locked vault (e.g. after process death) → gate
-            currentScreen = "unlock"
+            // Route "vault" to the gate via LaunchedEffect (never mutate currentScreen
+            // mid-composition — Compose dislikes state writes during composition).
+            LaunchedEffect(Unit) { currentScreen = "unlock" }
             VaultUnlockScreen(
                 locationName = saf.locationName(),
                 busy = unlockBusy,
