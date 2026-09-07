@@ -30,7 +30,7 @@
   de-versioned ('pre-1.0 audit'); ROADMAP shipped items checked
 - Repo: public bamit99/Quantum-Vault; license = custom (personal free, commercial needs
   permission; PolyForm Noncommercial 1.0.0 is closest standard if ever swapped)
-- iOS version planned ('follows in a few weeks' per amitb)
+- iOS shipped: bamit99/Quantum-Vault-iOS (public, iOS 26+, CryptoKit ML-KEM, byte-compatible QVAULT)
 
 ## Architecture (v1.0) — SAF replaced ALL cloud OAuth
 
@@ -117,7 +117,7 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
 2. **Run the 5 instrumented PQ tests on device/emulator** (Pixel_10_Pro AVD exists).
 3. **Biometric gate** before vault open (BiometricManager exists, unwired).
 4. **Delete/rename in vault browser**.
-5. **iOS kickoff planning** (promised 'a few weeks') — decide approach before starting.
+5. **iOS: DONE** — shipped at bamit99/Quantum-Vault-iOS (CryptoKit ML-KEM, byte-compatible QVAULT). Cross-platform vault transfer testing is follow-up work.
 6. WhatsApp-group definition final copy is done (English casual, approved); README
    intro = option B; no pending copy work.
 

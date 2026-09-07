@@ -2,7 +2,7 @@
 
 **Your files, sealed before they ever leave your hands.** Quantum Vault encrypts every file on-device with NIST-standardized post-quantum cryptography — ML-KEM-768 wrapped around every byte — and tucks it into any folder you choose: Google Drive, OneDrive, **OneDrive for Business/SharePoint (via Outlook)**, Dropbox, or plain local storage. No OAuth. No cloud SDK. No account. No servers. Just a vault that travels with your files.
 
-> **Platform:** Android today — **iOS follows in a few weeks.**
+> **Platform:** [Android](https://github.com/bamit99/Quantum-Vault) ✅ · **[iOS](https://github.com/bamit99/Quantum-Vault-iOS)** ✅ (iOS 26+; byte-compatible QVAULT containers — vaults move between platforms)
 
 > © 2026 [Amit Bhatnagar](https://www.linkedin.com/in/amitxbhatnagar/) — free for personal use; commercial use requires prior permission. See [LICENSE.md](LICENSE.md).
 
