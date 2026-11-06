@@ -10,8 +10,9 @@
 **APK (release-signed, installable):**
 - GitHub release asset `QuantumVault-v1.0.apk` (20,968,312 bytes) — the v1.0 published build
 - Signing: `keystore/quantum-vault-release.keystore` (gitignored), alias `quantumvault`,
-  RSA-4096 PKCS12, 30-yr validity, cert SHA-256 `d5c75b68...e409ab`, CN=Amit Bhatnagar.
-  **Password lives in KeePass DB → 'Quantum Vault release keystore' (Infrastructure group).
+  RSA-4096 PKCS12, 30-yr validity, cert SHA-256 `<kept out of repo>`, CN=Amit Bhatnagar.
+  **Password lives in the owner's password manager — `<kept out of repo>`
+  (vault/entry/group names intentionally not reproduced in this repo).
   NEVER lose keystore+password — future updates must install over this signature.**
 - Signing config: user-global `~/.gradle/gradle.properties` (`keystore.file/password/alias`,
   `keystore.file` needs `D\\:` escaping) read by `app/build.gradle.kts` via `findProperty` —
@@ -69,9 +70,9 @@ local — already authenticated by the user's own app sign-ins. The app:
 
 ```
 export JAVA_HOME="C:/Program Files/Android/Android Studio/jbr"   # JDK 21
-cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
+cd <local project path> && ./gradlew assembleDebug
 ```
-- `local.properties` → `sdk.dir=C\:\\Users\\amitb\\AppData\\Local\\Android\\Sdk`
+- `local.properties` → `sdk.dir=<local Android SDK path>`
   (double-backslash escaping; gitignored)
 - SDK: build-tools 35/36/37, platform android-36.1; Gradle 8.13 via wrapper
 - google-services plugin REMOVED from root build.gradle.kts (Firebase unused) —
@@ -123,8 +124,8 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
 
 ## Repo logistics
 
-- Private GitHub repo `bamit99/Android_File_Encryption` (Kotlin, pkg
-  `com.aiguru.android_file_encryption`); clone at `D:\Projects\Android_File_Encryption`
+- Private GitHub repo `<private repo name — kept out of repo>` (Kotlin, pkg
+  `com.aiguru.android_file_encryption`); clone at `<local project path — kept out of repo>`
 - `gh` CLI authed as bamit99 on this machine
 - Commit history before this milestone: 2 commits (Nov 2025: setup + vault UI)
 - v1.0 milestone: first public release; pre-1.0 internal versioning retired (see versioning note above)
@@ -133,4 +134,4 @@ cd /d/Projects/Android_File_Encryption && ./gradlew assembleDebug
 
 - Owner: amitb (bamit99 on GitHub). Prefers concise answers, versioned files,
   never overwrite directly — make .bak or versioned copies.
-- Session context lives in Hermes session DB (search: "Android_File_Encryption").
+- Session context lives in Hermes session DB (search key: `<private project name — kept out of repo>`).

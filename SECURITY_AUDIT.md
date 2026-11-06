@@ -67,3 +67,13 @@ The OAuth/cloud managers were removed but manifest permissions remained. Reduce 
 
 ## Method note
 Every finding above was verified by reading the shipped source (grep + targeted reads); none are inferred from the README. The one P0 was found by an external reviewer and confirmed by code inspection before fixing.
+
+---
+
+> **Correction (added 2026-11-06, hygiene pass):** this audit predates the QVAULT v2
+> parse-order P0 fix — commit `6bc42dc068bc59fd51abd99e5059c29906756ebb`
+> (2026-09-04, *"fix: QVAULT v2 decrypt parse order — wrappedPass/wrappedDevice were
+> swapped vs encrypt wire order"*), caught by the on-device PQ test run documented in
+> commit `2bb6aeabbc873eb1d34b0b2a20bc73d82cae4a3d`. The audit text above is left as
+> written — it describes the code as of its scope commit `ddb7806` (2026-09-03);
+> current `master` includes the parse-order fix.
