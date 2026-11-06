@@ -17,3 +17,6 @@ local.properties
 
 # release signing material - never commit
 keystore/
+
+# IDE config — not part of the project
+/.idea/
